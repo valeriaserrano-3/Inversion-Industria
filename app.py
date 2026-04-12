@@ -288,11 +288,11 @@ elif marca_seleccionada == "KAVAK":
         except Exception as e:
             st.error(f"Error al procesar Kavak: {e}")
 
-# --- BLOQUE INDUSTRIA OFF (Antes Industria HR) ---
-elif marca_seleccionada == "Industria Off":
-    st.subheader("📊 Panel Industria Off (Reportes HR Ratings)")
+# --- BLOQUE INDUSTRIA (HR) ---
+elif marca_seleccionada == "INDUSTRIA (HR)":
+    st.subheader("📊 Panel Industria (HR Ratings)")
     
-    # Sección de multiplicadores editables
+    # --- NUEVA SECCIÓN: AJUSTE DE MULTIPLICADORES ---
     with st.expander("⚙️ Configurar Multiplicadores de Inversión (Factores)", expanded=True):
         col_m1, col_m2, col_m3 = st.columns(3)
         with col_m1:
@@ -302,13 +302,14 @@ elif marca_seleccionada == "Industria Off":
         with col_m3:
             m_pr = st.number_input("Factor Prensa", min_value=1.0, max_value=5.0, value=1.0, step=0.1)
             
+    # Actualizamos el diccionario local de multiplicadores con lo que el usuario puso en la interfaz
     multiplicadores_usuario = {
         "TELEVISION": m_tv,
         "RADIO": m_rd,
         "PRENSA": m_pr
     }
 
-    st.info("Sube los archivos de HR Ratings para procesar la inversión Offline de la industria.")
+    st.info("Sube cada medio para aplicar los factores configurados arriba.")
     
     tab1, tab2, tab3 = st.tabs(["📺 Televisión", "📻 Radio", "📰 Prensa"])
     
@@ -319,14 +320,15 @@ elif marca_seleccionada == "Industria Off":
     with tab3:
         f_pr = st.file_uploader("Reporte HR - Prensa", type=['xlsx'], key="hr_pr")
         
-    if st.button("Procesar Industria Off"):
+    if st.button("Procesar Industria"):
         list_ind = []
         
+        # Función interna que usa los multiplicadores que el usuario acaba de elegir
         def process_hr_custom(file, medio_key):
             df_temp = pd.read_excel(file)
-            # Se usa la función de procesamiento base
+            # Llamamos a tu función base pero pasamos el multiplicador elegido en la UI
             res = process_hr_ratings(df_temp, medio_key)
-            # Se aplica el factor elegido por el usuario en la interfaz
+            # Sobreescribimos la Inversión F30 con el factor del slider/number_input
             factor = multiplicadores_usuario.get(medio_key, 1.0)
             res['Inversión F30'] = res['Inversión (MXN)'] * factor
             return res
@@ -337,7 +339,7 @@ elif marca_seleccionada == "Industria Off":
         
         if list_ind:
             final_df = pd.concat(list_ind, ignore_index=True)
-            st.success(f"✅ Industria Off procesada con éxito ({len(final_df)} filas).")
+            st.success(f"✅ Procesadas {len(final_df)} filas con multiplicadores personalizados.")
             st.dataframe(final_df.head())
             
 # ─────────────────────────────────────────────────────────────────────────────

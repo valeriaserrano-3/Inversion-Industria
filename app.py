@@ -234,145 +234,102 @@ elif marca_seleccionada == "KAVAK":
         st.success("✅ KAVAK Procesado.")
 
 # --- BLOQUE INDUSTRIA (HR) ---
+elif marca_seleccionada == "INDUSTRIA (HR)":
+    st.subheader("📊 Panel Industria (HR Ratings)")
+    with st.expander("⚙️ Configuración de Factores", expanded=False):
+        m_general = st.number_input("Factor General", value=1.3)
+        m_tv_abierta = st.number_input("TV Abierta", value=0.40)
+        m_tv_paga = st.number_input("TV Paga", value=0.60)
+        m_radio = st.number_input("Radio", value=0.70)
+    
+    factores = {"TELEVISION ABIERTA": m_tv_abierta, "TELEVISION PAGA": m_tv_paga, "RADIO": m_radio, "PRENSA": 1.0, "REVISTAS": 1.0}
+    t1, t2, t3 = st.tabs(["📺 TV", "📻 Radio", "📰 Impresos"])
+    with t1: f_tv = st.file_uploader("Excel TV", type=['xlsx'])
+    with t2: f_rd = st.file_uploader("Excel Radio", type=['xlsx'])
+    with t3: f_pr = st.file_uploader("Excel Impresos", type=['xlsx'])
 
-elif marca_seleccionada == "Dashboard Global":
-        st.title("📊 Dashboard Estratégico 2026")
-        
-        if 'dg_memoria_historica' not in st.session_state:
-            st.session_state.dg_memoria_historica = pd.DataFrame()
+    if st.button("Procesar Industria"):
+        list_ind = []
+        files = [(f_tv, "TELEVISION ABIERTA"), (f_rd, "RADIO"), (f_pr, "PRENSA")]
+        for f, m in files:
+            if f:
+                df_t = pd.read_excel(f)
+                res = process_hr_ratings(df_t, m)
+                res['Inversión F30'] = (res['Inversión (MXN)'] * m_general) * factores.get(m, 1.0)
+                list_ind.append(res)
+        if list_ind:
+            final_df = pd.concat(list_ind, ignore_index=True)
+            st.success("✅ Industria Procesada.")
 
-        # --- LISTAS MAESTRAS ---
-        GRUPOS_VISTAS = {
-            "GWM": ["NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", "KIA", "GWM", "GEELY", "CHIREY OMODA", "MG", "GAC", "TOYOTA", "CHANGAN", "EXEED"],
-            "JAC": ["BYD", "NISSAN", "RAM", "CHEVROLET", "VOLKSWAGEN", "KIA", "HYUNDAI", "GEELY", "CHIREY", "RENAULT", "HONDA", "FORD", "MITSUBISHI", "MG", "TOYOTA", "GWM MOTORS", "PEUGEOT", "GAC", "SUZUKI", "CHANGAN", "JAC", "JAC INDUSTRIA", "SEAT", "MAZDA", "FOTON", "JETOUR"],
-            "KAVAK": ["NISSAN", "GENERAL MOTORS", "HYUNDAI", "VOLKSWAGEN", "KAVAK", "KIA", "MITSUBISHI", "FORD MOTOR", "GEELY", "JEEP", "INFINITI", "PEUGEOT", "CHIREY", "RENAULT", "TOYOTA", "MG", "BBVA AUTOMARKET", "HONDA"],
-            "BAIC": ["MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", "JETOUR", "CHANGAN", "JAC", "MOTORNATION", "BAIC"]
-        }
-        
-        dg_todas_foco = list(set([m for sub in GRUPOS_VISTAS.values() for m in sub]))
-        dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_v23_final")
+# --- BLOQUE ADMETRICKS ---
+elif marca_seleccionada == "ADMETRICKS":
+    st.subheader("📊 Panel Admetricks")
+    BRAND_MAP = {"GWM MOTORS": "GWM Motors", "JAC MOTORS": "JAC INDUSTRIA", "KAVAK": "KAVAK"}
+    f_adme = st.file_uploader("Subir Admetricks", type=['xlsx'])
+    if f_adme and st.button("Procesar Admetricks"):
+        df_ad = pd.read_excel(f_adme)
+        res_ad = pd.DataFrame()
+        res_ad['#Grupo'] = df_ad['Marca'].str.upper().map(BRAND_MAP).fillna(df_ad['Marca'])
+        res_ad['Inversión (MXN)'] = pd.to_numeric(df_ad['Valorización Est.'], errors='coerce').fillna(0)
+        res_ad['Inversión F30'] = res_ad['Inversión (MXN)'] * 1.3
+        res_ad['Fuente'] = 'Online'; res_ad['Categoría'] = 'ADMETRICKS'
+        res_ad['Año-mes'] = pd.Timestamp.now().replace(day=1)
+        final_df = res_ad[res_ad['Inversión (MXN)'] > 0].copy()
+        st.success("✅ Admetricks Procesado.")
 
-        if dg_archivo:
-            if dg_archivo.name.endswith('.csv'):
-                dg_df_raw = pd.read_csv(dg_archivo)
-            else:
-                df_check = pd.read_excel(dg_archivo, nrows=5)
-                skip = 3 if any(df_check.iloc[:,0].astype(str).str.contains("Fuente", na=False)) else 0
-                dg_df_raw = pd.read_excel(dg_archivo, skiprows=skip)
-            
-            dg_df_raw.columns = [str(c).strip() for c in dg_df_raw.columns]
+# --- BLOQUE OOH ---
+elif marca_seleccionada == "OOH":
+    st.subheader("🏢 Panel OOH")
+    f_ooh = st.file_uploader("Subir OOH", type=['xlsx', 'csv'])
+    if f_ooh and st.button("Procesar OOH"):
+        df_ooh = pd.read_excel(f_ooh, skiprows=1) if not f_ooh.name.endswith('.csv') else pd.read_csv(f_ooh)
+        res_ooh = pd.DataFrame()
+        res_ooh['#Grupo'] = df_ooh['Marca'].str.upper()
+        inv_raw = pd.to_numeric(df_ooh.filter(like='Costo').iloc[:,0], errors='coerce').fillna(0)
+        res_ooh['Inversión (MXN)'] = inv_raw
+        res_ooh['Inversión F30'] = inv_raw * 1.3
+        res_ooh['Fuente'] = 'OOH'; res_ooh['Año-mes'] = pd.Timestamp.now().replace(day=1)
+        final_df = res_ooh[res_ooh['Inversión (MXN)'] > 0].copy()
+        st.success("✅ OOH Procesado.")
 
-            if '#Grupo' in dg_df_raw.columns:
-                dg_temp = dg_df_raw.copy()
-                dg_temp['Marca_Original'] = dg_temp['#Grupo']
-                dg_temp['Periodo'] = dg_temp['Año-mes']
-                dg_temp['Monto'] = pd.to_numeric(dg_temp['Inversión (MXN)'], errors='coerce').fillna(0)
-                dg_temp['Fuente_Raw'] = dg_temp['Fuente'].fillna('OTROS')
-            else:
-                dg_col_marca = next((c for c in dg_df_raw.columns if c.lower() in ['brand', 'marca']), None)
-                dg_cols_2026 = [c for c in dg_df_raw.columns if '26' in c]
-                if dg_col_marca and dg_cols_2026:
-                    dg_temp = dg_df_raw.melt(id_vars=[dg_col_marca], value_vars=dg_cols_2026, var_name='Periodo', value_name='Monto')
-                    dg_temp['Marca_Original'] = dg_temp[dg_col_marca]
-                    dg_temp['Monto'] = pd.to_numeric(dg_temp['Monto'], errors='coerce').fillna(0)
-                    dg_temp['Fuente_Raw'] = dg_temp['Marca_Original']
-                else: dg_temp = pd.DataFrame()
+# ─────────────────────────────────────────────────────────────────────────────
+# RESULTADOS FINALES (ESTO VA AL FINAL DEL ARCHIVO, SIN INDENTACIÓN)
+# ─────────────────────────────────────────────────────────────────────────────
+if 'final_df' in locals() and not final_df.empty:
+    st.divider()
+    
+    # 1. Métricas con formato M
+    c1, c2, c3 = st.columns(3)
+    total_inv = final_df['Inversión (MXN)'].sum()
+    c1.metric("Total Filas", f"{len(final_df):,}")
+    c2.metric("Inversión Total", f"${total_inv / 1_000_000:.1f}M")
+    c3.metric("Medios", final_df['Fuente'].nunique())
 
-            if not dg_temp.empty:
-                def dg_cat(x):
-                    v = str(x).upper()
-                    if any(k in v for k in ['BILLBOARD', 'BUS', 'OOH', 'VALLA', 'EXTERIOR']): return 'OOH'
-                    if any(k in v for k in ['DIGITAL', 'SOCIAL', 'ONLINE', 'WEB']): return 'ONLINE'
-                    if any(k in v for k in ['TV', 'RADIO', 'PRENSA', 'OFFLINE']): return 'OFFLINE'
-                    return 'ONLINE'
-                
-                dg_temp['Medio_Final'] = dg_temp['Fuente_Raw'].apply(dg_cat)
-                def asignar_marca_limpia(txt):
-                    t = str(txt).upper()
-                    for m in dg_todas_foco:
-                        if m in t: return m
-                    return t
-                dg_temp['Marca_Final'] = dg_temp['Marca_Original'].apply(asignar_marca_limpia)
-                
-                # --- LIMPIEZA DE DUPLICADOS REAL ---
-                dg_final_to_save = dg_temp[['Marca_Final', 'Periodo', 'Monto', 'Medio_Final']].copy()
-                periodos_nuevos = dg_final_to_save['Periodo'].unique()
-                df_historial = st.session_state.dg_memoria_historica
-                
-                if not df_historial.empty:
-                    df_historial = df_historial[~df_historial['Periodo'].isin(periodos_nuevos)]
-                
-                st.session_state.dg_memoria_historica = pd.concat([df_historial, dg_final_to_save])
-                st.success("✅ Datos actualizados.")
+    # 2. Gráfica de Barras con formato de Dinero
+    import altair as alt
+    st.write("### Inversión por Marca/Grupo")
+    chart_data = final_df.groupby('#Grupo')['Inversión (MXN)'].sum().reset_index()
+    
+    chart = alt.Chart(chart_data).mark_bar().encode(
+        x=alt.X('#Grupo:N', title="Marca"),
+        y=alt.Y('Inversión (MXN):Q', title="Inversión ($)"),
+        tooltip=[alt.Tooltip('#Grupo'), alt.Tooltip('Inversión (MXN)', format="$,.2f")]
+    ).properties(height=400)
+    
+    st.altair_chart(chart, use_container_width=True)
 
-        if not st.session_state.dg_memoria_historica.empty:
-            df_display = st.session_state.dg_memoria_historica.copy()
-            import altair as alt
-            tabs = st.tabs(list(GRUPOS_VISTAS.keys()) + ["MERCADO TOTAL"])
+    # 3. Botón de descarga
+    csv = final_df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button("⬇️ Descargar Layout Maestro (CSV)", csv, "layout_automotriz.csv", "text/csv", use_container_width=True)
 
-            for i, nombre_grupo in enumerate(GRUPOS_VISTAS.keys()):
-                with tabs[i]:
-                    lista_marcas = GRUPOS_VISTAS[nombre_grupo]
-                    df_grupo = df_display[df_display['Marca_Final'].isin(lista_marcas)]
-                    
-                    if not df_grupo.empty:
-                        # KPIs superiores
-                        t_gral = df_grupo['Monto'].sum()
-                        t_on = df_grupo[df_grupo['Medio_Final']=='ONLINE']['Monto'].sum()
-                        t_off = df_grupo[df_grupo['Medio_Final']=='OFFLINE']['Monto'].sum()
-                        t_ooh = df_grupo[df_grupo['Medio_Final']=='OOH']['Monto'].sum()
-
-                        st.write(f"### Resumen Inversión - {nombre_grupo}")
-                        c1, c2, c3, c4 = st.columns(4)
-                        c1.metric("TOTAL GRUPO", f"${t_gral:,.0f}")
-                        c2.metric("ONLINE", f"${t_on:,.0f}")
-                        c3.metric("OFFLINE", f"${t_off:,.0f}")
-                        c4.metric("OOH", f"${t_ooh:,.0f}")
-                        st.markdown("---")
-
-                        # --- GRÁFICA CORREGIDA PARA COINCIDIR CON LOS TOTALES ---
-                        # Agrupamos todo por Mes y Medio para que la barra sume EXACTAMENTE lo mismo que las tarjetas
-                        df_plot = df_grupo.groupby(['Periodo', 'Medio_Final'])['Monto'].sum().reset_index()
-                        df_total_mes = df_plot.groupby('Periodo')['Monto'].sum().reset_index()
-
-                        # Base de la gráfica
-                        base = alt.Chart(df_plot).encode(x=alt.X('Periodo:O', title="Mes"))
-
-                        # 1. Las barras apiladas
-                        bars = base.mark_bar().encode(
-                            y=alt.Y('Monto:Q', title="Inversión Total", stack="zero"),
-                            color=alt.Color('Medio_Final:N', 
-                                           scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], 
-                                                         range=['#2471A3', '#D35400', '#28B463']),
-                                           title="Categoría"),
-                            tooltip=[alt.Tooltip('Periodo'), alt.Tooltip('Medio_Final'), alt.Tooltip('Monto', format='$,.0f')]
-                        )
-
-                        # 2. Etiquetas BLANCAS dentro de cada sección (Monto real)
-                        labels = base.mark_text(color='white', fontWeight='bold', dy=10, size=12).encode(
-                            y=alt.Y('Monto:Q', stack='zero'),
-                            text=alt.Text('Monto:Q', format='$.3s') # Ejemplo: $287M
-                        )
-
-                        # 3. TOTAL NEGRO arriba de toda la barra
-                        totals = alt.Chart(df_total_mes).mark_text(dy=-15, fontWeight='bold', size=15, color='black').encode(
-                            x=alt.X('Periodo:O'),
-                            y=alt.Y('Monto:Q'),
-                            text=alt.Text('Monto:Q', format='$.3s')
-                        )
-
-                        st.altair_chart((bars + labels + totals).properties(height=500), use_container_width=True)
-
-                        # Tabla detalle
-                        st.write("#### Detalle por Marca")
-                        piv_g = df_grupo.pivot_table(index='Marca_Final', columns='Periodo', values='Monto', aggfunc='sum', fill_value=0)
-                        piv_g = piv_g.reindex(lista_marcas).dropna(how='all')
-                        st.dataframe(piv_g.style.format("${:,.2f}"), use_container_width=True)
-
-        if st.sidebar.button("🗑️ Resetear Memoria Dashboard", key="dg_final_reset"):
-            st.session_state.dg_memoria_historica = pd.DataFrame()
-            st.rerun()
-
+    # 4. Única tabla con formato $
+    st.write("### Vista Previa de Datos")
+    st.dataframe(
+        final_df.style.format({
+            "Inversión (MXN)": "${:,.2f}",
+            "Inversión F30": "${:,.2f}"
+        }), use_container_width=True
+    )
 # --- BLOQUE DASHBOARD GLOBAL CORREGIDO (GRÁFICA SIN DUPLICADOS) ---
 elif marca_seleccionada == "Dashboard Global":
     st.title("📊 Dashboard Estratégico 2026")

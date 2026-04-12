@@ -231,7 +231,7 @@ elif marca_seleccionada == "JAC":
 # --- BLOQUE KAVAK ---
 elif marca_seleccionada == "KAVAK":
     st.subheader("📍 Panel KAVAK")
-    st.info("Este módulo procesa el Naming Convention de Kavak (Offline y OOH).")
+    
     
     f_kavak = st.file_uploader("Subir Naming Convention KAVAK", type=['xlsx'], key="kavak_file")
     

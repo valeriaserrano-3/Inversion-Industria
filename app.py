@@ -10,7 +10,6 @@ import plotly.graph_objects as go
 import io
 import calendar
 import warnings
-from pathlib import Path
 from datetime import datetime
 
 warnings.filterwarnings("ignore")
@@ -20,7 +19,7 @@ warnings.filterwarnings("ignore")
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Inversión Automotriz",
-    page_icon="🚗",
+    page_icon=None,
     layout="wide",
 )
 
@@ -48,7 +47,7 @@ def check_password() -> bool:
         .login-sub   { font-size: .9rem; color: #666; margin-bottom: 28px; }
         </style>
         <div class="login-box">
-          <div class="login-title">🚗 Inversión Automotriz</div>
+          <div class="login-title">Inversión Automotriz</div>
           <div class="login-sub">Ingresa la contraseña para continuar</div>
         </div>
         """,
@@ -165,41 +164,6 @@ def show_car_animation():
             </div>""",
         unsafe_allow_html=True,
     )
-
-# ─────────────────────────────────────────────────────────────────────────────
-# RUTAS POR USUARIO
-# ─────────────────────────────────────────────────────────────────────────────
-USERS = {
-    "Vale": {
-        "home": "/Users/vserrano",
-        "drive": "GoogleDrive-valeria.serrano@3zero.mx",
-    },
-    "Ale": {
-        "home": "/Users/ale",           # ← ajustar
-        "drive": "GoogleDrive-ale@3zero.mx",  # ← ajustar
-    },
-    "Sofi": {
-        "home": "/Users/sofi",          # ← ajustar
-        "drive": "GoogleDrive-sofi@3zero.mx", # ← ajustar
-    },
-}
-
-def get_drive_base(user_key: str) -> Path:
-    info = USERS[user_key]
-    return (
-        Path(info["home"])
-        / "Library/CloudStorage"
-        / info["drive"]
-        / "Unidades compartidas/Business Intelligence/Automotriz/Power BI"
-    )
-
-def detect_user() -> str | None:
-    import os
-    home = Path.home()
-    for k, v in USERS.items():
-        if str(home) == v["home"]:
-            return k
-    return None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LISTAS DE GRUPOS
@@ -755,7 +719,7 @@ def _tv_mult(medio_str: str, mult: dict) -> tuple:
     return mult["online"]  # 1.0, 1.3
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GUARDAR EN AUTOMOTRIZ.XLSX
+# MERGE EN MEMORIA
 # ─────────────────────────────────────────────────────────────────────────────
 LAYOUT_COLS = [
     "Fuente","Año","Año-mes","Inversión (MXN)","Inversión F30",
@@ -763,13 +727,15 @@ LAYOUT_COLS = [
     "Inversión original","No incluir",
 ]
 
-def save_to_automotriz(df_new: pd.DataFrame, automotriz_path: Path) -> tuple[int, int]:
-    """Agrega filas a Investment Raw data. Devuelve (filas_antes, filas_despues)."""
-    df_main = pd.read_excel(automotriz_path, sheet_name="Investment Raw data")
+def merge_with_automotriz(df_new: pd.DataFrame, automotriz_bytes: bytes) -> tuple[pd.DataFrame, int, int]:
+    """
+    Combina df_new con Investment Raw data del xlsx subido.
+    Devuelve (df_combinado, filas_antes, filas_despues).
+    """
+    df_main = pd.read_excel(io.BytesIO(automotriz_bytes), sheet_name="Investment Raw data")
     rows_before = len(df_main)
-
-    # Normalizar fechas
     df_main["Año-mes"] = pd.to_datetime(df_main["Año-mes"], errors="coerce")
+
     df_new_save = df_new.copy()
     for col in LAYOUT_COLS:
         if col not in df_new_save.columns:
@@ -777,17 +743,39 @@ def save_to_automotriz(df_new: pd.DataFrame, automotriz_path: Path) -> tuple[int
     df_new_save = df_new_save[LAYOUT_COLS]
 
     df_combined = pd.concat([df_main, df_new_save], ignore_index=True)
+    return df_combined, rows_before, len(df_combined)
 
-    import openpyxl
+
+def build_automotriz_xlsx(df_combined: pd.DataFrame, automotriz_bytes: bytes) -> bytes:
+    """
+    Genera bytes de automotriz.xlsx con Investment Raw data actualizado,
+    preservando las demás hojas del archivo original.
+    """
     from openpyxl import load_workbook
 
-    # Escribir preservando otras hojas
-    with pd.ExcelWriter(
-        automotriz_path, engine="openpyxl", mode="a", if_sheet_exists="replace"
-    ) as writer:
-        df_combined.to_excel(writer, sheet_name="Investment Raw data", index=False)
+    # Cargar workbook original para conservar otras hojas
+    wb = load_workbook(io.BytesIO(automotriz_bytes))
 
-    return rows_before, len(df_combined)
+    # Eliminar hoja que vamos a reemplazar
+    if "Investment Raw data" in wb.sheetnames:
+        del wb["Investment Raw data"]
+
+    # Crear la hoja con pandas y copiar al workbook
+    buf_tmp = io.BytesIO()
+    with pd.ExcelWriter(buf_tmp, engine="openpyxl") as wr:
+        df_combined.to_excel(wr, sheet_name="Investment Raw data", index=False)
+    wb_tmp = load_workbook(buf_tmp)
+    ws_new = wb_tmp["Investment Raw data"]
+
+    # Mover la hoja nueva al workbook original (posición 0)
+    ws_copy = wb.create_sheet("Investment Raw data", 0)
+    for row in ws_new.iter_rows():
+        for cell in row:
+            ws_copy[cell.coordinate] = cell.value
+
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ANÁLISIS Y GRÁFICAS
@@ -954,25 +942,6 @@ def main():
         """, unsafe_allow_html=True)
         st.divider()
 
-        # ── Detección de usuario ─────────────────────────────────────────────
-        if "active_user" not in st.session_state:
-            detected = detect_user()
-            st.session_state["active_user"] = detected
-
-        st.markdown("### Usuario")
-        detected = st.session_state.get("active_user")
-        if detected:
-            st.success(f"Detectado: **{detected}**")
-            if st.button("Cambiar usuario"):
-                st.session_state["active_user"] = None
-                st.rerun()
-        else:
-            for u in USERS:
-                if st.button(u, key=f"usr_{u}", use_container_width=True):
-                    st.session_state["active_user"] = u
-                    st.rerun()
-
-        st.divider()
         # ── Multiplicadores ────────────────────────────────────────────────
         st.markdown("### Multiplicadores")
         if "mult" not in st.session_state:
@@ -993,37 +962,39 @@ def main():
                     "tele_paga": (tp1, tp2), "online": (1.0, 1.30),
                     "ooh_mxn_factor": om, "ooh_f30_factor": of,
                 }
-                st.success("✅ Guardado")
-
-    # ── Rutas ──────────────────────────────────────────────────────────────────
-    active_user = st.session_state.get("active_user")
-    if not active_user:
-        st.info("Selecciona un usuario en la barra lateral para continuar.")
-        st.stop()
-
-    drive_base    = get_drive_base(active_user)
-    automotriz_path = drive_base / "Data/automotriz.xlsx"
-
-    if not automotriz_path.exists():
-        st.error(f"No se encontró automotriz.xlsx en:\n`{automotriz_path}`")
-        st.stop()
+                st.success("Guardado")
 
     mult = st.session_state.get("mult", DEFAULT_MULT)
 
-    # ── Upload ─────────────────────────────────────────────────────────────────
+    # ── Upload automotriz.xlsx ─────────────────────────────────────────────────
     st.markdown("---")
-    st.markdown("### Subir archivos")
+    st.markdown("### 1. Sube automotriz.xlsx")
+    automotriz_file = st.file_uploader(
+        "automotriz.xlsx",
+        type=["xlsx"],
+        key="automotriz_file",
+        label_visibility="collapsed",
+    )
+
+    if not automotriz_file:
+        st.caption("Sube automotriz.xlsx para continuar.")
+        st.stop()
+
+    automotriz_bytes = automotriz_file.read()
+
+    # ── Upload archivos fuente ─────────────────────────────────────────────────
+    st.markdown("### 2. Sube archivos de inversión")
 
     tab_gwm, tab_jac, tab_kvk = st.tabs(["GWM", "JAC", "KAVAK · BAIC · Industria"])
     with tab_gwm:
         files_gwm = st.file_uploader(
-            "Archivos GWM (Naming Convention + Online Resumen)",
+            "Archivos GWM",
             type=["xlsx","xls"], accept_multiple_files=True, key="gwm_files",
             label_visibility="collapsed",
         )
     with tab_jac:
         files_jac = st.file_uploader(
-            "Archivos JAC (Naming Convention + Online)",
+            "Archivos JAC",
             type=["xlsx","xls"], accept_multiple_files=True, key="jac_files",
             label_visibility="collapsed",
         )
@@ -1036,10 +1007,11 @@ def main():
 
     all_files = (files_gwm or []) + (files_jac or []) + (files_kvk or [])
     if not all_files:
-        st.caption("Sube al menos un archivo para continuar.")
+        st.caption("Sube al menos un archivo de inversión para continuar.")
         st.stop()
 
     # ── Mes / Año ───────────────────────────────────────────────────────────────
+    st.markdown("### 3. Selecciona periodo")
     col_m, col_y, _ = st.columns([2, 2, 6])
     with col_m:
         mes_num = st.selectbox(
@@ -1057,15 +1029,16 @@ def main():
         else pd.Period(f"{anio-1}-12", freq="M")
     )
 
-    # ── Botón correr ────────────────────────────────────────────────────────────
+    # ── Botones ────────────────────────────────────────────────────────────────
+    st.markdown("---")
     col_btn, col_re = st.columns([3, 1])
     with col_btn:
-        run_btn = st.button("▶  Procesar archivos", type="primary", use_container_width=True)
+        run_btn = st.button("Procesar archivos", type="primary", use_container_width=True)
     with col_re:
-        re_run = st.button("🔄 Volver a correr", use_container_width=True)
+        re_run = st.button("Volver a correr", use_container_width=True)
 
     if re_run:
-        for key in ["results_df","saved_ok","rows_added"]:
+        for key in ["results_df", "df_combined", "automotriz_updated"]:
             st.session_state.pop(key, None)
         st.rerun()
 
@@ -1073,30 +1046,31 @@ def main():
         if run_btn:
             # Procesar
             show_car_animation()
-            prog = st.progress(0, text="Procesando GWM…")
-            df_gwm  = process_gwm(files_gwm or [], periods, mult)
-            prog.progress(33, text="Procesando JAC…")
-            df_jac  = process_jac(files_jac or [], periods, mult)
-            prog.progress(66, text="Procesando KAVAK/BAIC…")
-            df_kvk  = process_kavak_baic_industria(files_kvk or [], periods, mult)
-            prog.progress(100, text="¡Listo!")
+            prog = st.progress(0, text="Procesando GWM...")
+            df_gwm = process_gwm(files_gwm or [], periods, mult)
+            prog.progress(33, text="Procesando JAC...")
+            df_jac = process_jac(files_jac or [], periods, mult)
+            prog.progress(66, text="Procesando KAVAK / BAIC...")
+            df_kvk = process_kavak_baic_industria(files_kvk or [], periods, mult)
+            prog.progress(100, text="Listo")
             prog.empty()
 
             df_all = pd.concat([df_gwm, df_jac, df_kvk], ignore_index=True)
             if df_all.empty:
-                st.warning("No se encontraron datos para el período seleccionado.")
+                st.warning("No se encontraron datos para el periodo seleccionado.")
                 st.stop()
 
             st.session_state["results_df"] = df_all
 
-            # Guardar en automotriz.xlsx
+            # Combinar con automotriz en memoria
             try:
-                rb, ra = save_to_automotriz(df_all, automotriz_path)
-                st.session_state["saved_ok"]   = True
-                st.session_state["rows_added"] = ra - rb
+                df_combined, rb, ra = merge_with_automotriz(df_all, automotriz_bytes)
+                st.session_state["df_combined"]       = df_combined
+                st.session_state["rows_added"]        = ra - rb
+                st.session_state["automotriz_updated"] = build_automotriz_xlsx(df_combined, automotriz_bytes)
             except Exception as e:
-                st.session_state["saved_ok"]   = False
-                st.session_state["save_error"] = str(e)
+                st.session_state["df_combined"]  = None
+                st.session_state["merge_error"]  = str(e)
 
         # ── Resultados ────────────────────────────────────────────────────────
         df_all = st.session_state["results_df"]
@@ -1108,20 +1082,27 @@ def main():
         added = st.session_state.get("rows_added", total_rows)
 
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Registros totales", f"{total_rows:,}")
+        col1.metric("Registros nuevos", f"{total_rows:,}")
         col2.metric("Online",  f"{counts.get('Online',0):,}")
         col3.metric("Offline", f"{counts.get('Offline',0):,}")
         col4.metric("OOH",     f"{counts.get('OOH',0):,}")
 
-        if st.session_state.get("saved_ok"):
-            st.success(f"✅ {added:,} filas agregadas a automotriz.xlsx")
-        elif "save_error" in st.session_state:
-            st.error(f"Error al guardar: {st.session_state['save_error']}")
+        if st.session_state.get("automotriz_updated"):
+            ts_label = f"{calendar.month_abbr[mes_num]}{anio}"
+            st.success(f"{added:,} filas nuevas incluidas en el archivo.")
+            st.download_button(
+                "Descargar automotriz actualizado",
+                data=st.session_state["automotriz_updated"],
+                file_name=f"automotriz_{ts_label}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+            )
+        elif "merge_error" in st.session_state:
+            st.error(f"Error al combinar: {st.session_state['merge_error']}")
 
-        # ── Cargar automotriz para análisis ───────────────────────────────────
-        try:
-            df_main = pd.read_excel(automotriz_path, sheet_name="Investment Raw data")
-        except Exception:
+        # df para análisis: usar el combinado si existe, si no solo los nuevos
+        df_main = st.session_state.get("df_combined")
+        if df_main is None:
             df_main = df_all.copy()
 
         df_main["Año-mes"] = pd.to_datetime(df_main["Año-mes"], errors="coerce")
@@ -1194,16 +1175,16 @@ def main():
         ts_label = f"{calendar.month_abbr[mes_num]}{anio}"
         with ecol1:
             st.download_button(
-                "📥 Descargar XLSX",
+                "Descargar XLSX (solo nuevos)",
                 data=export_xlsx(df_all),
-                file_name=f"automotriz_{ts_label}.xlsx",
+                file_name=f"nuevos_{ts_label}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         with ecol2:
             st.download_button(
-                "📥 Descargar CSV (Power BI)",
+                "Descargar CSV (Power BI)",
                 data=export_csv(df_all),
-                file_name=f"automotriz_layout_{ts_label}.csv",
+                file_name=f"layout_{ts_label}.csv",
                 mime="text/csv",
             )
 

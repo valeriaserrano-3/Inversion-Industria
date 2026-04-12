@@ -349,8 +349,8 @@ elif marca_seleccionada == "Dashboard Global":
                     if v in ["CHERY", "CHIREY", "Chirey Motor", "CHIREY MOTOR MEXICO", "JETOUR MEXICO", "JAECOO", "OMODA", "OMODA+JAECOO"]:
                         return "Chirey"
                         
-                     # MG: Unificar las marcas
-                    if v in ["MG", "MG MOTOR", "MG Motors", "MG ROVER MEXICO", "MORRIS GARAGES", "Morris Motors"]:
+                    # MG: Unificar las marcas
+                    if v in ["MG", "MG MOTOR", "MG MOTORS", "MG ROVER MEXICO", "MORRIS GARAGES", "MORRIS MOTORS"]:
                         return "MG"
 
                     # GAC: Unificar las marcas

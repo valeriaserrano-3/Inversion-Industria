@@ -356,44 +356,42 @@ elif marca_seleccionada == "OOH":
 
 elif marca_seleccionada == "Dashboard Global":
     st.title("📊 Dashboard Estratégico 2026")
-    st.info("💡 Este panel agrupa las marcas según tus capturas de pantalla y guarda memoria de los meses.")
+    st.info("💡 Navega por las pestañas. La gráfica ahora muestra: OOH, Offline y Online.")
 
     if 'dg_memoria_historica' not in st.session_state:
         st.session_state.dg_memoria_historica = pd.DataFrame()
 
-    # --- LISTAS FINALES BASADAS EN TUS 4 FOTOS ---
+    # --- LISTAS FINALES SEGÚN TUS FOTOS ---
     GRUPOS_VISTAS = {
-        "GRUPO GWM": [
+        "GWM": [
             "NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", 
             "KIA", "GWM", "GEELY", "CHIREY OMODA", "MG", 
             "GAC", "TOYOTA", "CHANGAN", "EXEED"
         ],
-        "GRUPO JAC": [
+        "JAC": [
             "BYD", "NISSAN", "RAM", "CHEVROLET", "VOLKSWAGEN", "KIA", 
             "HYUNDAI", "GEELY", "CHIREY", "RENAULT", "HONDA", "FORD", 
             "MITSUBISHI", "MG", "TOYOTA", "GWM MOTORS", "PEUGEOT", 
             "GAC", "SUZUKI", "CHANGAN", "JAC", "JAC INDUSTRIA", 
             "SEAT", "MAZDA", "FOTON", "JETOUR"
         ],
-        "GRUPO KAVAK": [
+        "KAVAK": [
             "NISSAN", "GENERAL MOTORS", "HYUNDAI", "VOLKSWAGEN", 
             "KAVAK", "KIA", "MITSUBISHI", "FORD MOTOR", "GEELY", 
             "JEEP", "INFINITI", "PEUGEOT", "CHIREY", "RENAULT", 
             "TOYOTA", "MG", "BBVA AUTOMARKET", "HONDA"
         ],
-        "GRUPO BAIC": [
+        "BAIC": [
             "MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", 
             "JETOUR", "CHANGAN", "JAC", "MOTORNATION", "BAIC"
         ]
     }
     
-    # CORRECCIÓN AQUÍ: Usamos el nombre correcto GRUPOS_VISTAS
     dg_todas_foco = list(set([m for sub in GRUPOS_VISTAS.values() for m in sub]))
 
-    dg_archivo = st.file_uploader("Subir Archivo", type=['xlsx', 'csv'], key="dg_hybrid_v4")
+    dg_archivo = st.file_uploader("Subir Archivo", type=['xlsx', 'csv'], key="dg_tabs_v6")
 
     if dg_archivo:
-        # 1. Leer archivo
         if dg_archivo.name.endswith('.csv'):
             dg_df_raw = pd.read_csv(dg_archivo)
         else:
@@ -403,39 +401,39 @@ elif marca_seleccionada == "Dashboard Global":
         
         dg_df_raw.columns = [str(c).strip() for c in dg_df_raw.columns]
 
-        # --- LÓGICA DE DETECCIÓN DE FORMATO ---
-        if '#Grupo' in dg_df_raw.columns and 'Inversión (MXN)' in dg_df_raw.columns:
-            st.write("📂 Detectado: Formato Layout App")
+        # --- NORMALIZACIÓN ---
+        if '#Grupo' in dg_df_raw.columns:
             dg_temp = dg_df_raw.copy()
             dg_temp['Marca_Original'] = dg_temp['#Grupo']
             dg_temp['Periodo'] = dg_temp['Año-mes']
             dg_temp['Monto'] = pd.to_numeric(dg_temp['Inversión (MXN)'], errors='coerce').fillna(0)
-            dg_temp['Medio_Final'] = dg_temp['Fuente'].fillna('OTROS')
+            dg_temp['Fuente_Raw'] = dg_temp['Fuente'].fillna('OTROS')
         else:
             dg_col_marca = next((c for c in dg_df_raw.columns if c.lower() in ['brand', 'marca']), None)
             dg_cols_2026 = [c for c in dg_df_raw.columns if '26' in c]
 
             if dg_col_marca and dg_cols_2026:
-                st.write("📂 Detectado: Reporte Original Admetricks")
-                dg_df_raw = dg_df_raw[dg_df_raw[dg_col_marca].notna()]
-                dg_df_raw = dg_df_raw[~dg_df_raw[dg_col_marca].str.contains('Total|Share', case=False, na=False)]
-                
                 dg_temp = dg_df_raw.melt(id_vars=[dg_col_marca], value_vars=dg_cols_2026, var_name='Periodo', value_name='Monto')
                 dg_temp['Marca_Original'] = dg_temp[dg_col_marca]
                 dg_temp['Monto'] = pd.to_numeric(dg_temp['Monto'], errors='coerce').fillna(0)
-                
-                def dg_cat(x):
-                    v = str(x).upper()
-                    if any(k in v for k in ['BILLBOARD', 'BUS', 'OOH', 'VALLA', 'EXTERIOR']): return 'OOH'
-                    if any(k in v for k in ['DIGITAL', 'SOCIAL', 'ONLINE', 'FACEBOOK']): return 'DIGITAL'
-                    return 'OTROS'
-                dg_temp['Medio_Final'] = dg_temp['Marca_Original'].apply(dg_cat)
+                dg_temp['Fuente_Raw'] = dg_temp['Marca_Original'] # En original usamos la marca para deducir si no hay col fuente
             else:
-                st.error("❌ El archivo no es válido.")
                 dg_temp = pd.DataFrame()
 
         if not dg_temp.empty:
-            # LIMPIEZA PARA QUE COINCIDA CON TUS LISTAS
+            # --- NUEVA LÓGICA DE CATEGORIZACIÓN: OOH, OFFLINE, ONLINE ---
+            def dg_cat(x):
+                v = str(x).upper()
+                if any(k in v for k in ['BILLBOARD', 'BUS', 'OOH', 'VALLA', 'EXTERIOR', 'PARABUS']): 
+                    return 'OOH'
+                if any(k in v for k in ['DIGITAL', 'SOCIAL', 'ONLINE', 'FACEBOOK', 'INSTAGRAM', 'YOUTUBE', 'WEB']): 
+                    return 'ONLINE'
+                if any(k in v for k in ['TV', 'RADIO', 'PRENSA', 'REVISTA', 'OFFLINE', 'CINE']): 
+                    return 'OFFLINE'
+                return 'ONLINE' # Default a Online si no se detecta
+            
+            dg_temp['Medio_Final'] = dg_temp['Fuente_Raw'].apply(dg_cat)
+
             def asignar_marca_limpia(txt):
                 t = str(txt).upper()
                 for m in dg_todas_foco:
@@ -443,37 +441,50 @@ elif marca_seleccionada == "Dashboard Global":
                 return t
             
             dg_temp['Marca_Final'] = dg_temp['Marca_Original'].apply(asignar_marca_limpia)
-            
-            # Guardar en memoria
             dg_final_to_save = dg_temp[['Marca_Final', 'Periodo', 'Monto', 'Medio_Final']].copy()
             st.session_state.dg_memoria_historica = pd.concat([st.session_state.dg_memoria_historica, dg_final_to_save]).drop_duplicates()
-            st.success("✅ Datos sincronizados.")
+            st.success("✅ Datos cargados con categorías: OOH, Offline y Online.")
 
-    # --- VISUALIZACIÓN POR GRUPOS (TUS FOTOS) ---
+    # --- VISUALIZACIÓN CON TABS ---
     if not st.session_state.dg_memoria_historica.empty:
         df_display = st.session_state.dg_memoria_historica.copy()
-        
-        tab_foco, tab_total = st.tabs(["🎯 Grupos Estratégicos", "🌐 Mercado Total"])
+        nombres_tabs = list(GRUPOS_VISTAS.keys()) + ["MERCADO TOTAL"]
+        tabs = st.tabs(nombres_tabs)
 
-        with tab_foco:
-            for nombre_grupo, lista_marcas in GRUPOS_VISTAS.items():
-                with st.expander(f"📌 {nombre_grupo}", expanded=True):
-                    # Filtrar solo marcas de este grupo
-                    df_grupo = df_display[df_display['Marca_Final'].isin(lista_marcas)]
-                    
-                    if not df_grupo.empty:
-                        piv_g = df_grupo.pivot_table(index='Marca_Final', columns='Periodo', values='Monto', aggfunc='sum', fill_value=0)
-                        # Reordenar según tu lista
-                        piv_g = piv_g.reindex(lista_marcas).dropna(how='all')
-                        st.dataframe(piv_g.style.format("${:,.2f}"), use_container_width=True)
-                    else:
-                        st.write("No hay datos cargados para este grupo.")
+        import altair as alt
 
-        with tab_total:
-            st.write("### Top Industria")
+        for i, nombre_grupo in enumerate(GRUPOS_VISTAS.keys()):
+            with tabs[i]:
+                st.subheader(f"Análisis de {nombre_grupo}")
+                lista_marcas = GRUPOS_VISTAS[nombre_grupo]
+                df_grupo = df_display[df_display['Marca_Final'].isin(lista_marcas)]
+                
+                if not df_grupo.empty:
+                    # 1. Tabla de Datos
+                    piv_g = df_grupo.pivot_table(index='Marca_Final', columns='Periodo', values='Monto', aggfunc='sum', fill_value=0)
+                    piv_g = piv_g.reindex(lista_marcas).dropna(how='all')
+                    st.dataframe(piv_g.style.format("${:,.2f}"), use_container_width=True)
+
+                    # 2. Gráfica Apilada Corregida
+                    st.write("**Mix de Inversión (OOH vs Offline vs Online)**")
+                    chart = alt.Chart(df_grupo).mark_bar().encode(
+                        x=alt.X('Periodo:O', title="Mes"),
+                        y=alt.Y('sum(Monto):Q', title="Inversión Total"),
+                        color=alt.Color('Medio_Final:N', 
+                                       title="Categoría",
+                                       scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'],
+                                                     range=['#1f77b4', '#ff7f0e', '#2ca02c'])), # Colores fijos para claridad
+                        tooltip=['Marca_Final', 'Periodo', 'Medio_Final', alt.Tooltip('sum(Monto)', format="$,.2f")]
+                    ).properties(height=350)
+                    st.altair_chart(chart, use_container_width=True)
+                else:
+                    st.warning(f"Sin datos para {nombre_grupo}.")
+
+        with tabs[-1]:
+            st.subheader("Ranking General")
             piv_gen = df_display.pivot_table(index='Marca_Final', columns='Periodo', values='Monto', aggfunc='sum', fill_value=0)
             piv_gen['Total'] = piv_gen.sum(axis=1)
-            st.dataframe(piv_gen.sort_values('Total', ascending=False).head(40).style.format("${:,.2f}"), use_container_width=True)
+            st.dataframe(piv_gen.sort_values('Total', ascending=False).head(50).style.format("${:,.2f}"), use_container_width=True)
 
     if st.sidebar.button("🗑️ Resetear Memoria Dashboard", key="dg_final_reset"):
         st.session_state.dg_memoria_historica = pd.DataFrame()

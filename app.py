@@ -326,6 +326,10 @@ elif marca_seleccionada == "Dashboard Global":
                     v = str(valor).upper().strip()
                     
                     # NISSAN: Solo si es Nissan o Nissan Mexico/Mexicana
+                    if v in ["BYD", "BYD AUTO", "BUILD YOUR DR B MEX"]:
+                        return "BYD"
+                        
+                    # NISSAN: Solo si es Nissan o Nissan Mexico/Mexicana
                     if v in ["NISSAN", "NISSAN MEXICO", "NISSAN MEXICANA"]:
                         return "NISSAN"
                     
@@ -336,12 +340,26 @@ elif marca_seleccionada == "Dashboard Global":
                     # CHEVROLET / GM: Unificar para evitar el salto de 59 a 109
                     if v in ["CHEVROLET", "GENERAL MOTORS", "GM", "GENERAL MOTORS MEX", "GMC"]:
                         return "CHEVROLET"
-                    
-                    # GWM
-                    if "GWM" in v: return "GWM MEXICO"
-                    
-                    # CHIREY
-                    if any(k in v for k in ["CHIREY", "OMODA", "JAECOO"]): return "CHIREY"
+
+                    # GWM: Unificar 
+                    if v in ["GWM", "GREAT WALL MOTOR", "GREAT WALL MOTOR MEX", "GWM Great Wall Motors", "GWM MEXICO", "HAVAL"]:
+                        return "GWM"
+                        
+                    # Chirey: Unificar las marcas
+                    if v in ["CHERY", "CHIREY", "Chirey Motor", "CHIREY MOTOR MEXICO", "JETOUR MEXICO", "JAECOO", "OMODA", "OMODA+JAECOO"]:
+                        return "Chirey"
+                        
+                     # MG: Unificar las marcas
+                    if v in ["MG", "MG MOTOR", "Chirey Motor", "MG Motors", "MG ROVER MEXICO", "MORRIS GARAGES", "Morris Motors"]:
+                        return "MG"
+
+                    # GAC: Unificar las marcas
+                    if v in ["GAC", "GAC MOTOR"]:
+                        return "GAC"
+
+                    # Changan: Unificar las marcas
+                    if v in ["CHANGAN", "CHANGAN AUTO", "CHANGAN MEXICO"]:
+                        return "Changan"
 
                     return v
 

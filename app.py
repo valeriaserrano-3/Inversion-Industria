@@ -148,13 +148,6 @@ with st.sidebar:
 
 final_df = pd.DataFrame()
 
-def format_big_numbers(number):
-    if number >= 1_000_000:
-        return f"${number / 1_000_000:.1f}M"
-    elif number >= 1_000:
-        return f"${number / 1_000:.1f}K"
-    else:
-        return f"${number:,.2f}"
 
 # --- BLOQUE GWM ---
 if marca_seleccionada == "GWM":
@@ -512,8 +505,66 @@ elif marca_seleccionada == "OOH":
 
         except Exception as e:
             st.error(f"Error al procesar OOH: {e}")
-            
-            
+# ... (aquí termina tu último bloque de marca, por ejemplo OOH)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BLOQUE FINAL DE RESULTADOS (FUERA DE LOS IF/ELIF)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Esta parte debe estar pegada al margen izquierdo para que se ejecute siempre
+if not final_df.empty:
+    st.divider()
+    st.subheader("✅ Resultado Final del Procesamiento")
+    
+    # 1. Definimos la función de formato aquí mismo para asegurar que funcione
+    def format_millions(number):
+        if number >= 1_000_000:
+            return f"${number / 1_000_000:.1f}M"
+        elif number >= 1_000:
+            return f"${number / 1_000:.1f}K"
+        else:
+            return f"${number:,.2f}"
+
+    # 2. Mostramos las Métricas (Los números grandes)
+    col_a, col_b, col_c = st.columns(3)
+    
+    with col_a:
+        st.metric("Total Filas", f"{len(final_df):,}")
+    
+    with col_b:
+        total_inv = final_df['Inversión (MXN)'].sum()
+        st.metric("Inversión Total", format_millions(total_inv))
+    
+    with col_c:
+        try:
+            # Contar meses únicos
+            n_meses = final_df['Año-mes'].dt.month.nunique()
+            st.metric("Meses Detectados", n_meses)
+        except:
+            st.metric("Meses Detectados", "1")
+
+    st.markdown("---")
+
+    # 3. Botón de descarga grande
+    csv = final_df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button(
+        label="⬇️ DESCARGAR EXCEL CONSOLIDADO (CSV)",
+        data=csv,
+        file_name=f"inversion_automotriz_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+    # 4. Tabla formateada con signos de pesos y comas
+    st.write("### Vista previa de la tabla")
+    st.dataframe(
+        final_df.style.format({
+            "Inversión (MXN)": "${:,.2f}",
+            "Inversión F30": "${:,.2f}"
+        }),
+        use_container_width=True
+    )            
+       
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS
 # ─────────────────────────────────────────────────────────────────────────────

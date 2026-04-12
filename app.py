@@ -430,7 +430,7 @@ elif marca_seleccionada == "ADMETRICKS":
 # --- BLOQUE OOH ---
 elif marca_seleccionada == "OOH":
     st.subheader("🏢 Panel OOH (Publicidad Exterior)")
-    st.info("Sube los reportes de OOH (XLSX o CSV). El sistema detectará si es un formato de Marca o Distribuidor.")
+    
 
     f_ooh = st.file_uploader("Subir archivo OOH", type=['xlsx', 'csv'], key="ooh_uploader")
 

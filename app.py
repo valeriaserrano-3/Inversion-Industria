@@ -292,24 +292,28 @@ elif marca_seleccionada == "KAVAK":
 elif marca_seleccionada == "INDUSTRIA (HR)":
     st.subheader("📊 Panel Industria (HR Ratings)")
     
-    # --- NUEVA SECCIÓN: AJUSTE DE MULTIPLICADORES ---
-    with st.expander("⚙️ Configurar Multiplicadores de Inversión (Factores)", expanded=True):
+    with st.expander("⚙️ Configurar Multiplicadores de Inversión", expanded=True):
+        # 1. Nuevo factor que afecta a TODO
+        m_general = st.number_input("Factor General (Base)", min_value=1.0, value=1.0, step=0.1, help="Primero se multiplica por este valor")
+        
+        st.divider() # Línea divisoria
+        
+        # 2. Factores específicos por medio
         col_m1, col_m2, col_m3 = st.columns(3)
         with col_m1:
-            m_tv = st.number_input("Factor TV", min_value=1.0, max_value=5.0, value=1.3, step=0.1)
+            m_tv = st.number_input("Factor TV", min_value=1.0, value=1.3, step=0.1)
         with col_m2:
-            m_rd = st.number_input("Factor Radio", min_value=1.0, max_value=5.0, value=1.3, step=0.1)
+            m_rd = st.number_input("Factor Radio", min_value=1.0, value=1.3, step=0.1)
         with col_m3:
-            m_pr = st.number_input("Factor Prensa", min_value=1.0, max_value=5.0, value=1.0, step=0.1)
+            m_pr = st.number_input("Factor Prensa", min_value=1.0, value=1.0, step=0.1)
             
-    # Actualizamos el diccionario local de multiplicadores con lo que el usuario puso en la interfaz
     multiplicadores_usuario = {
         "TELEVISION": m_tv,
         "RADIO": m_rd,
         "PRENSA": m_pr
     }
 
-    st.info("Sube cada medio para aplicar los factores configurados arriba.")
+    st.info(f"Fórmula aplicada: (Inversión × {m_general}) × Factor de Medio")
     
     tab1, tab2, tab3 = st.tabs(["📺 Televisión", "📻 Radio", "📰 Prensa"])
     
@@ -323,14 +327,17 @@ elif marca_seleccionada == "INDUSTRIA (HR)":
     if st.button("Procesar Industria"):
         list_ind = []
         
-        # Función interna que usa los multiplicadores que el usuario acaba de elegir
         def process_hr_custom(file, medio_key):
             df_temp = pd.read_excel(file)
-            # Llamamos a tu función base pero pasamos el multiplicador elegido en la UI
             res = process_hr_ratings(df_temp, medio_key)
-            # Sobreescribimos la Inversión F30 con el factor del slider/number_input
-            factor = multiplicadores_usuario.get(medio_key, 1.0)
-            res['Inversión F30'] = res['Inversión (MXN)'] * factor
+            
+            # --- AQUÍ SUCEDE LA DOBLE MULTIPLICACIÓN ---
+            factor_medio = multiplicadores_usuario.get(medio_key, 1.0)
+            
+            # Paso 1: Multiplicar por Factor General
+            # Paso 2: Multiplicar por Factor de Medio
+            res['Inversión F30'] = (res['Inversión (MXN)'] * m_general) * factor_medio
+            
             return res
 
         if f_tv: list_ind.append(process_hr_custom(f_tv, "TELEVISION"))
@@ -339,7 +346,7 @@ elif marca_seleccionada == "INDUSTRIA (HR)":
         
         if list_ind:
             final_df = pd.concat(list_ind, ignore_index=True)
-            st.success(f"✅ Procesadas {len(final_df)} filas con multiplicadores personalizados.")
+            st.success(f"✅ Procesadas {len(final_df)} filas con doble factor.")
             st.dataframe(final_df.head())
             
 # ─────────────────────────────────────────────────────────────────────────────

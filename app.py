@@ -293,43 +293,62 @@ elif marca_seleccionada == "OOH":
         st.success("✅ OOH Procesado.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# RESULTADOS FINALES (ESTO VA AL FINAL DEL ARCHIVO, SIN INDENTACIÓN)
+# DESCARGA DE RESULTADOS (FINAL DEL SCRIPT)
 # ─────────────────────────────────────────────────────────────────────────────
-if 'final_df' in locals() and not final_df.empty:
+if not final_df.empty:
     st.divider()
+    st.subheader("✅ Resultado Listo")
     
-    # 1. Métricas con formato M
+    # 1. MÉTRICAS (Números grandes en el formato que pediste)
     c1, c2, c3 = st.columns(3)
     total_inv = final_df['Inversión (MXN)'].sum()
+    
     c1.metric("Total Filas", f"{len(final_df):,}")
-    c2.metric("Inversión Total", f"${total_inv / 1_000_000:.1f}M")
-    c3.metric("Medios", final_df['Fuente'].nunique())
+    
+    # Formato de Millones para la métrica
+    if total_inv >= 1_000_000:
+        inv_format = f"${total_inv / 1_000_000:.1f}M"
+    else:
+        inv_format = f"${total_inv:,.0f}"
+        
+    c2.metric("Inversión Total", inv_format)
+    c3.metric("Meses Detectados", final_df['Año-mes'].dt.month.nunique())
 
-    # 2. Gráfica de Barras con formato de Dinero
-    import altair as alt
+    # 2. GRÁFICA DE BARRAS (Con formato de moneda)
     st.write("### Inversión por Marca/Grupo")
+    import altair as alt
+    
+    # Agrupamos datos para la gráfica
     chart_data = final_df.groupby('#Grupo')['Inversión (MXN)'].sum().reset_index()
     
-    chart = alt.Chart(chart_data).mark_bar().encode(
-        x=alt.X('#Grupo:N', title="Marca"),
-        y=alt.Y('Inversión (MXN):Q', title="Inversión ($)"),
-        tooltip=[alt.Tooltip('#Grupo'), alt.Tooltip('Inversión (MXN)', format="$,.2f")]
+    # Creamos la gráfica con formato de moneda en el tooltip (el cuadrito que sale al pasar el mouse)
+    chart = alt.Chart(chart_data).mark_bar(color='#0077b6').encode(
+        x=alt.X('#Grupo:N', title="Marca", sort='-y'),
+        y=alt.Y('Inversión (MXN):Q', title="Inversión Acumulada ($)"),
+        tooltip=[
+            alt.Tooltip('#Grupo:N', title="Marca"),
+            alt.Tooltip('Inversión (MXN):Q', title="Total", format="$,.2f") # <--- Comas y $ aquí
+        ]
     ).properties(height=400)
     
     st.altair_chart(chart, use_container_width=True)
 
-    # 3. Botón de descarga
+    # 3. BOTÓN DE DESCARGA
     csv = final_df.to_csv(index=False).encode('utf-8-sig')
-    st.download_button("⬇️ Descargar Layout Maestro (CSV)", csv, "layout_automotriz.csv", "text/csv", use_container_width=True)
-
-    # 4. Única tabla con formato $
-    st.write("### Vista Previa de Datos")
+    st.download_button(
+        label="⬇️ Descargar layout_automotriz.csv",
+        data=csv,
+        file_name=f"upload_to_automotriz_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
+    
+    # 4. TABLA DETALLADA (Con formato de moneda en las celdas)
+    st.write("### Vista previa de los datos")
     st.dataframe(
         final_df.style.format({
             "Inversión (MXN)": "${:,.2f}",
             "Inversión F30": "${:,.2f}"
-        }), use_container_width=True
+        }),
+        use_container_width=True
     )
-  
-         
-       

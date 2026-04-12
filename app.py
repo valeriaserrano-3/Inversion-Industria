@@ -353,6 +353,81 @@ elif marca_seleccionada == "INDUSTRIA (HR)":
             final_df = pd.concat(list_ind, ignore_index=True)
             st.success("✅ Procesado: Impresos (1.3) | Otros (1.3 + Factor Medio)")
             st.dataframe(final_df.head())
+
+# --- BLOQUE ADMETRICKS ---
+elif marca_seleccionada == "ADMETRICKS":
+    st.subheader("📊 Panel Admetricks")
+    st.info("Sube el reporte de Admetricks para normalizar marcas y aplicar el factor 1.3.")
+
+    # 1. Configuración de Marca (Diccionario de normalización)
+    BRAND_MAP = {
+        "GWM MOTORS": "GWM Motors",
+        "GWM": "GWM Motors",
+        "GREAT WALL": "GWM Motors",
+        "JAC MOTORS": "JAC INDUSTRIA",
+        "JAC": "JAC INDUSTRIA",
+        "KAVAK": "KAVAK"
+    }
+
+    f_adme = st.file_uploader("Subir reporte Admetricks (.xlsx)", type=['xlsx'], key="adme_uploader")
+
+    if f_adme and st.button("Procesar Admetricks"):
+        try:
+            # Leer archivo
+            df_ad = pd.read_excel(f_adme)
+            
+            # Limpiar nombres de columnas
+            df_ad.columns = [str(c).strip() for c in df_ad.columns]
+
+            # 2. Transformación al layout maestro
+            res_ad = pd.DataFrame()
+            
+            # Normalizar Marcas
+            res_ad['#Grupo'] = df_ad['Marca'].str.upper().map(BRAND_MAP).fillna(df_ad['Marca'])
+            
+            # Fuente siempre es Online para Admetricks
+            res_ad['Fuente'] = 'Online'
+            
+            # Año-mes (Intentar extraer de la columna 'Mes' o 'Periodo')
+            col_fecha = next((c for c in df_ad.columns if 'MES' in c.upper() or 'PERIODO' in c.upper()), None)
+            if col_fecha:
+                res_ad['Año-mes'] = pd.to_datetime(df_ad[col_fecha]).dt.to_period('M').dt.to_timestamp()
+            else:
+                res_ad['Año-mes'] = pd.Timestamp.now().replace(day=1)
+            
+            res_ad['Año'] = res_ad['Año-mes'].dt.year
+            
+            # Inversión y Factor 1.3
+            inv_col = next((c for c in df_ad.columns if 'VALOR' in c.upper() or 'INVER' in c.upper()), None)
+            if inv_col:
+                inv_raw = pd.to_numeric(df_ad[inv_col], errors='coerce').fillna(0)
+                res_ad['Inversión (MXN)'] = inv_raw
+                res_ad['Inversión F30'] = inv_raw * 1.3  # Factor fijo F30
+            
+            res_ad['modelo'] = df_ad.get('Campañas', 'VARIOS').str.upper()
+            res_ad['Categoría'] = 'ADMETRICKS'
+            res_ad['medio'] = df_ad.get('Plataforma', 'DIGITAL')
+            res_ad['Producto'] = res_ad['modelo']
+
+            # Filtrar solo lo que tenga inversión real
+            final_adme = res_ad[res_ad['Inversión (MXN)'] > 0].copy()
+
+            if not final_adme.empty:
+                final_df = final_adme # Para el botón de descarga global
+                st.success(f"✅ Admetricks procesado: {len(final_adme)} registros normalizados.")
+                
+                # Mostrar resumen por marca
+                resumen = final_adme.groupby('#Grupo')['Inversión (MXN)'].sum().reset_index()
+                st.write("Resumen de inversión por Marca:")
+                st.table(resumen.style.format({"Inversión (MXN)": "${:,.2f}"}))
+                
+                st.dataframe(final_adme.head())
+            else:
+                st.warning("No se detectó inversión en el archivo subido.")
+
+        except Exception as e:
+            st.error(f"Error al procesar Admetricks: {e}")
+            
             
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS

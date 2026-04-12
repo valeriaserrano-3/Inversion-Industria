@@ -361,12 +361,30 @@ elif marca_seleccionada == "Dashboard Global":
     if 'dg_memoria_historica' not in st.session_state:
         st.session_state.dg_memoria_historica = pd.DataFrame()
 
-    # Listas de Marcas Foco
-    DG_GRUPOS = {
-        "GWM": ["GWM", "GWM MOTORS", "HAVAL", "TANK", "ORA", "POER", "WEY", "GWM MEXICO"],
-        "JAC": ["JAC", "JAC MOTORS", "JAC INDUSTRIA"],
-        "KAVAK": ["KAVAK"],
-        "BAIC": ["BAIC", "JMC", "MOTORNATION"]
+  # --- LISTAS FINALES BASADAS EN TUS 4 FOTOS ---
+    GRUPOS_VISTAS = {
+        "GRUPO GWM": [
+            "NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", 
+            "KIA", "GWM", "GEELY", "CHIREY OMODA", "MG", 
+            "GAC", "TOYOTA", "CHANGAN", "EXEED"
+        ],
+        "GRUPO JAC": [
+            "BYD", "NISSAN", "RAM", "CHEVROLET", "VOLKSWAGEN", "KIA", 
+            "HYUNDAI", "GEELY", "CHIREY", "RENAULT", "HONDA", "FORD", 
+            "MITSUBISHI", "MG", "TOYOTA", "GWM MOTORS", "PEUGEOT", 
+            "GAC", "SUZUKI", "CHANGAN", "JAC", "JAC INDUSTRIA", 
+            "SEAT", "MAZDA", "FOTON", "JETOUR"
+        ],
+        "GRUPO KAVAK": [
+            "NISSAN", "GENERAL MOTORS", "HYUNDAI", "VOLKSWAGEN", 
+            "KAVAK", "KIA", "MITSUBISHI", "FORD MOTOR", "GEELY", 
+            "JEEP", "INFINITI", "PEUGEOT", "CHIREY", "RENAULT", 
+            "TOYOTA", "MG", "BBVA AUTOMARKET", "HONDA"
+        ],
+        "GRUPO BAIC": [
+            "MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", 
+            "JETOUR", "CHANGAN", "JAC", "MOTORNATION", "BAIC"
+        ]
     }
     dg_todas_foco = [m for sub in DG_GRUPOS.values() for m in sub]
 

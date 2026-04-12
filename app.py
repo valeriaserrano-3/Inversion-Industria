@@ -325,7 +325,7 @@ elif marca_seleccionada == "Dashboard Global":
                 def unificar_marcas_dashboard(valor):
                     v = str(valor).upper().strip()
                     
-                    # NISSAN: Solo si es Nissan o Nissan Mexico/Mexicana
+                    # BYD: Solo si es Nissan o Nissan Mexico/Mexicana
                     if v in ["BYD", "BYD AUTO", "BUILD YOUR DR B MEX"]:
                         return "BYD"
                         
@@ -347,7 +347,7 @@ elif marca_seleccionada == "Dashboard Global":
                         
                     # Chirey: Unificar las marcas
                     if v in ["CHERY", "CHIREY", "Chirey Motor", "CHIREY MOTOR MEXICO", "JETOUR MEXICO", "JAECOO", "OMODA", "OMODA+JAECOO"]:
-                        return "Chirey"
+                        return "CHIREY MEXICO"
                         
                     # MG: Unificar las marcas
                     if v in ["MG", "MG MOTOR", "MG MOTORS", "MG ROVER MEXICO", "MORRIS GARAGES", "MORRIS MOTORS"]:

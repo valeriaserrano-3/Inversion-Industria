@@ -354,76 +354,73 @@ elif marca_seleccionada == "OOH":
         
 # --- BLOQUE DASHBOARD GLOBAL ---
 elif marca_seleccionada == "Dashboard Global":
-    st.title("📊 Análisis de Inversión Histórica")
-    st.info("Sube tu archivo maestro (CSV o Excel) para analizar periodos específicos.")
-
-    f_master = st.file_uploader("Subir Archivo Consolidado", type=['xlsx', 'csv'], key="master_dash")
+    st.title("📊 Análisis de Inversión 2026")
+    
+    # 1. Subida del archivo (Master o el que me pasaste)
+    f_master = st.file_uploader("Subir Archivo de Inversión", type=['xlsx', 'csv'], key="master_2026")
 
     if f_master:
-        # Leer archivo
-        if f_master.name.endswith('.csv'):
-            df_dash = pd.read_csv(f_master)
-        else:
-            df_dash = pd.read_excel(f_master)
-
-        # Convertir fecha para poder filtrar
+        # Leer datos
+        df_dash = pd.read_csv(f_master) if f_master.name.endswith('.csv') else pd.read_excel(f_master)
+        
+        # Asegurar formato de fecha
         df_dash['Año-mes'] = pd.to_datetime(df_dash['Año-mes'])
         
-        # --- FILTROS EN COLUMNAS ---
-        st.subheader("⚙️ Filtros de visualización")
-        col_f1, col_f2 = st.columns(2)
-        
-        with col_f1:
-            # Selector de Años (Detecta automáticamente qué años hay en el archivo)
-            anios_disponibles = sorted(df_dash['Año-mes'].dt.year.unique())
-            anios_sel = st.multiselect("Selecciona Año(s)", anios_disponibles, default=anios_disponibles)
-        
-        with col_f2:
-            # Selector de Fuentes
-            fuentes_disponibles = df_dash['Fuente'].unique()
-            fuentes_sel = st.multiselect("Selecciona Fuente(s)", fuentes_disponibles, default=fuentes_disponibles)
+        # --- FILTRO AUTOMÁTICO DESDE ENERO 2026 ---
+        # Filtramos internamente para que solo veas 2026 como pediste
+        df_2026 = df_dash[df_dash['Año-mes'] >= '2026-01-01'].copy()
 
-        # Aplicar Filtros
-        mask = (df_dash['Año-mes'].dt.year.isin(anios_sel)) & (df_dash['Fuente'].isin(fuentes_sel))
-        df_filtered = df_dash[mask]
+        if not df_2026.empty:
+            # --- MÉTRICAS RÁPIDAS ---
+            t_inv = df_2026['Inversión (MXN)'].sum()
+            st.metric("Inversión Total Acumulada (2026)", f"${t_inv:,.2f}")
 
-        if not df_filtered.empty:
-            # --- MÉTRICAS ---
-            total_inv = df_filtered['Inversión (MXN)'].sum()
-            c1, c2 = st.columns(2)
-            c1.metric("Inversión en Periodo Seleccionado", f"${total_inv / 1_000_000:.2f}M")
-            c2.metric("Registros", f"{len(df_filtered):,}")
-
-            # --- GRÁFICA DE BARRAS POR FUENTE ---
-            st.write("### Inversión por Fuente")
+            # --- 2. GRÁFICA APILADA POR MES Y FUENTE ---
+            st.write("### 📈 Inversión Mensual por Fuente (Apilada)")
             import altair as alt
             
-            # Agrupamos por Fuente para la gráfica
-            chart_data = df_filtered.groupby('Fuente')['Inversión (MXN)'].sum().reset_index()
+            # Formatear mes para el eje X
+            df_2026['Mes-Nombre'] = df_2026['Año-mes'].dt.strftime('%b %Y')
             
-            chart = alt.Chart(chart_data).mark_bar().encode(
-                x=alt.X('Fuente:N', title="Fuente de Inversión", sort='-y'),
-                y=alt.Y('Inversión (MXN):Q', title="Total ($)"),
-                color=alt.Color('Fuente:N', legend=None),
-                tooltip=[alt.Tooltip('Fuente'), alt.Tooltip('Inversión (MXN)', format="$,.2f")]
-            ).properties(height=350)
-            
-            st.altair_chart(chart, use_container_width=True)
+            stacked_chart = alt.Chart(df_2026).mark_bar().encode(
+                x=alt.X('Mes-Nombre:O', title="Mes", sort=alt.EncodingSortField(field='Año-mes')),
+                y=alt.Y('sum(Inversión (MXN)):Q', title="Inversión Total ($)"),
+                color=alt.Color('Fuente:N', title="Fuente"),
+                tooltip=[
+                    alt.Tooltip('Mes-Nombre:O', title="Mes"),
+                    alt.Tooltip('Fuente:N'),
+                    alt.Tooltip('sum(Inversión (MXN)):Q', format="$,.2f", title="Inversión")
+                ]
+            ).properties(height=400)
 
-            # --- TABLA RESUMEN POR MEDIO ---
-            st.write("### Desglose Detallado por Medio")
-            # Agrupamos por Fuente y Medio para la tabla que pediste
-            tabla_resumen = df_filtered.groupby(['Fuente', 'medio'])['Inversión (MXN)'].sum().reset_index()
-            
-            # Ordenar de mayor a menor inversión
-            tabla_resumen = tabla_resumen.sort_values(by='Inversión (MXN)', ascending=False)
+            st.altair_chart(stacked_chart, use_container_width=True)
 
+            # --- 3. TABLA DINÁMICA: MARCA vs MEDIO ---
+            st.write("### 🏢 Matriz de Inversión: Marca vs Medio")
+            
+            # Creamos la tabla pivote: Filas = Marcas (#Grupo), Columnas = medio
+            pivot_table = df_2026.pivot_table(
+                values='Inversión (MXN)', 
+                index='#Grupo', 
+                columns='medio', 
+                aggfunc='sum', 
+                fill_value=0
+            )
+            
+            # Añadimos una columna de Total por marca al final
+            pivot_table['TOTAL GENERAL'] = pivot_table.sum(axis=1)
+            # Ordenamos para que la marca que más gasta salga arriba
+            pivot_table = pivot_table.sort_values(by='TOTAL GENERAL', ascending=False)
+
+            # Mostramos con formato de moneda
             st.dataframe(
-                tabla_resumen.style.format({"Inversión (MXN)": "${:,.2f}"}),
+                pivot_table.style.format("${:,.2f}"),
                 use_container_width=True
             )
+            
         else:
-            st.warning("No hay datos para los filtros seleccionados.")
+            st.warning("No se encontraron datos a partir de enero de 2026 en este archivo.")
+        
             
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS (FINAL DEL SCRIPT)

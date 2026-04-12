@@ -354,72 +354,93 @@ elif marca_seleccionada == "OOH":
         
 # --- BLOQUE DASHBOARD GLOBAL ---
 elif marca_seleccionada == "Dashboard Global":
-    st.title("📊 Análisis de Inversión 2026")
-    
-    # 1. Subida del archivo (Master o el que me pasaste)
-    f_master = st.file_uploader("Subir Archivo de Inversión", type=['xlsx', 'csv'], key="master_2026")
+    st.title("📊 Dashboard Estratégico 2026")
+
+    # 1. MEMORIA PARA NO DUPLICAR Y GUARDAR MESES ANTERIORES
+    if 'historico_master' not in st.session_state:
+        st.session_state.historico_master = pd.DataFrame()
+
+    # --- DICCIONARIO DE MARCAS (Según tus fotos) ---
+    GRUPOS_FOCO = {
+        "GWM": ["GWM", "GWM MOTORS", "GREAT WALL", "HAVAL", "ORA", "POER", "TANK", "WEY"],
+        "JAC": ["JAC", "JAC MOTORS", "JAC INDUSTRIA"],
+        "KAVAK": ["KAVAK"],
+        "BAIC": ["BAIC", "JMC", "MOTORNATION"]
+    }
+    todas_foco = [item for sublist in GRUPOS_FOCO.values() for item in sublist]
+
+    f_master = st.file_uploader("Subir Reporte Mensual (Ene-26, Feb-26...)", type=['xlsx', 'csv'])
 
     if f_master:
-        # Leer datos
-        df_dash = pd.read_csv(f_master) if f_master.name.endswith('.csv') else pd.read_excel(f_master)
-        
-        # Asegurar formato de fecha
-        df_dash['Año-mes'] = pd.to_datetime(df_dash['Año-mes'])
-        
-        # --- FILTRO AUTOMÁTICO DESDE ENERO 2026 ---
-        # Filtramos internamente para que solo veas 2026 como pediste
-        df_2026 = df_dash[df_dash['Año-mes'] >= '2026-01-01'].copy()
+        # Leer archivo saltando encabezados de reporte
+        df_raw = pd.read_excel(f_master, skiprows=3) if f_master.name.endswith('.xlsx') else pd.read_csv(f_master, skiprows=3)
+        df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
-        if not df_2026.empty:
-            # --- MÉTRICAS RÁPIDAS ---
-            t_inv = df_2026['Inversión (MXN)'].sum()
-            st.metric("Inversión Total Acumulada (2026)", f"${t_inv:,.2f}")
+        # Identificar columnas de meses 2026
+        cols_2026 = [c for c in df_raw.columns if '26' in c]
+        col_marca = 'Brand' if 'Brand' in df_raw.columns else 'Marca'
 
-            # --- 2. GRÁFICA APILADA POR MES Y FUENTE ---
-            st.write("### 📈 Inversión Mensual por Fuente (Apilada)")
+        if cols_2026:
+            # Transformar a formato largo
+            df_melt = df_raw.melt(id_vars=[col_marca], value_vars=cols_2026, var_name='Mes', value_name='Inversión')
+            
+            # --- NORMALIZACIÓN DE MEDIOS ---
+            def limpiar_medios(row):
+                # Si la fila tiene un valor de inversión pero no tiene nombre de medio 
+                # (en el TableBuilder el medio suele venir abajo de la marca o en columna aparte)
+                # Aquí ajustamos según la estructura de tus archivos:
+                m = str(row[col_marca]).upper()
+                if any(x in m for x in ['BILLBOARD', 'BUS', 'OOH', 'VALLA', 'MUPI']): return 'OOH'
+                if any(x in m for x in ['DIGITAL', 'SOCIAL', 'FACEBOOK', 'GOOGLE', 'ONLINE']): return 'DIGITAL'
+                return 'OTROS'
+
+            df_melt['Categoria_Medio'] = df_melt[col_marca].apply(limpiar_medios)
+            
+            # Unir a la memoria y eliminar duplicados exactos
+            st.session_state.historico_master = pd.concat([st.session_state.historico_master, df_melt]).drop_duplicates()
+            st.success("✅ Datos actualizados. Se conservan meses previos en memoria.")
+
+    # --- VISUALIZACIÓN ---
+    if not st.session_state.historico_master.empty:
+        df_view = st.session_state.historico_master.copy()
+        
+        # Crear los Tabs que pediste
+        tab1, tab2 = st.tabs(["🎯 Marcas Foco (GWM/JAC/KAVAK/BAIC)", "🌐 Mercado Total"])
+
+        with tab1:
+            # Filtrar solo tus marcas
+            df_foco = df_view[df_view[col_marca].str.upper().isin(todas_foco)].copy()
+            
+            # Gráfica Apilada
             import altair as alt
-            
-            # Formatear mes para el eje X
-            df_2026['Mes-Nombre'] = df_2026['Año-mes'].dt.strftime('%b %Y')
-            
-            stacked_chart = alt.Chart(df_2026).mark_bar().encode(
-                x=alt.X('Mes-Nombre:O', title="Mes", sort=alt.EncodingSortField(field='Año-mes')),
-                y=alt.Y('sum(Inversión (MXN)):Q', title="Inversión Total ($)"),
-                color=alt.Color('Fuente:N', title="Fuente"),
-                tooltip=[
-                    alt.Tooltip('Mes-Nombre:O', title="Mes"),
-                    alt.Tooltip('Fuente:N'),
-                    alt.Tooltip('sum(Inversión (MXN)):Q', format="$,.2f", title="Inversión")
-                ]
+            st.write("### Evolución Mensual Marcas Foco")
+            chart = alt.Chart(df_foco).mark_bar().encode(
+                x=alt.X('Mes:O', sort=['Amount Jan-26', 'Amount Feb-26', 'Amount Mar-26']),
+                y=alt.Y('sum(Inversión):Q', title="Inversión ($)"),
+                color=alt.Color('Categoria_Medio:N', title="Medio"),
+                tooltip=['Mes', 'Categoria_Medio', alt.Tooltip('sum(Inversión)', format="$,.2f")]
             ).properties(height=400)
+            st.altair_chart(chart, use_container_width=True)
 
-            st.altair_chart(stacked_chart, use_container_width=True)
+            # Matriz Marcas vs Meses (2026)
+            st.write("### Matriz Detallada")
+            pivot_foco = df_foco.pivot_table(index=col_marca, columns='Mes', values='Inversión', aggfunc='sum', fill_value=0)
+            st.dataframe(pivot_foco.style.format("${:,.2f}"), use_container_width=True)
 
-            # --- 3. TABLA DINÁMICA: MARCA vs MEDIO ---
-            st.write("### 🏢 Matriz de Inversión: Marca vs Medio")
+        with tab2:
+            st.write("### Top 25 Marcas de la Industria")
+            # Tabla general para toda la industria
+            pivot_gen = df_view.pivot_table(index=col_marca, columns='Mes', values='Inversión', aggfunc='sum', fill_value=0)
+            pivot_gen['Total'] = pivot_gen.sum(axis=1)
+            st.dataframe(pivot_gen.sort_values('Total', ascending=False).head(25).style.format("${:,.2f}"), use_container_width=True)
             
-            # Creamos la tabla pivote: Filas = Marcas (#Grupo), Columnas = medio
-            pivot_table = df_2026.pivot_table(
-                values='Inversión (MXN)', 
-                index='#Grupo', 
-                columns='medio', 
-                aggfunc='sum', 
-                fill_value=0
-            )
-            
-            # Añadimos una columna de Total por marca al final
-            pivot_table['TOTAL GENERAL'] = pivot_table.sum(axis=1)
-            # Ordenamos para que la marca que más gasta salga arriba
-            pivot_table = pivot_table.sort_values(by='TOTAL GENERAL', ascending=False)
+    else:
+        st.warning("Aún no hay datos. Por favor sube un archivo de TableBuilder o Descarga.")
 
-            # Mostramos con formato de moneda
-            st.dataframe(
-                pivot_table.style.format("${:,.2f}"),
-                use_container_width=True
-            )
-            
-        else:
-            st.warning("No se encontraron datos a partir de enero de 2026 en este archivo.")
+    # Botón para resetear memoria si es necesario
+    if st.sidebar.button("🗑️ Limpiar Histórico (Reset)"):
+        st.session_state.historico_master = pd.DataFrame()
+        st.rerun()
         
             
 # ─────────────────────────────────────────────────────────────────────────────

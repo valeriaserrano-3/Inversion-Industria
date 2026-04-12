@@ -235,7 +235,7 @@ elif marca_seleccionada == "KAVAK":
 
 # --- BLOQUE INDUSTRIA (HR) ---
 
- elif marca_seleccionada == "Dashboard Global":
+elif marca_seleccionada == "Dashboard Global":
         st.title("📊 Dashboard Estratégico 2026")
         
         if 'dg_memoria_historica' not in st.session_state:
@@ -374,7 +374,7 @@ elif marca_seleccionada == "KAVAK":
             st.rerun()
 
 # --- BLOQUE DASHBOARD GLOBAL ---
- elif marca_seleccionada == "Dashboard Global":
+elif marca_seleccionada == "Dashboard Global":
         st.title("📊 Dashboard Estratégico 2026")
         
         if 'dg_memoria_historica' not in st.session_state:

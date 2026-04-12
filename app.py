@@ -299,85 +299,90 @@ elif marca_seleccionada == "Dashboard Global":
     if 'dg_memoria_historica' not in st.session_state:
         st.session_state.dg_memoria_historica = pd.DataFrame()
 
-    with st.sidebar:
-        if st.button("🗑️ Limpiar Datos Actuales"):
-            st.session_state.dg_memoria_historica = pd.DataFrame()
-            st.rerun()
-
-    dg_archivo = st.file_uploader("Subir Reporte (Layout Automotriz)", type=['xlsx', 'csv'], key="dg_dashboard_v4")
+    # 1. LISTAS MAESTRAS (Incluye BAIC)
+    GRUPOS_VISTAS = {
+        "GWM": ["NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", "KIA", "GWM", "GEELY", "CHIREY OMODA", "MG", "GAC", "TOYOTA", "CHANGAN", "EXEED"],
+        "JAC": ["BYD", "NISSAN", "RAM", "CHEVROLET", "VOLKSWAGEN", "KIA", "HYUNDAI", "GEELY", "CHIREY", "RENAULT", "HONDA", "FORD", "MITSUBISHI", "MG", "TOYOTA", "GWM MOTORS", "PEUGEOT", "GAC", "SUZUKI", "CHANGAN", "JAC", "JAC INDUSTRIA", "SEAT", "MAZDA", "FOTON", "JETOUR"],
+        "KAVAK": ["NISSAN", "GENERAL MOTORS", "HYUNDAI", "VOLKSWAGEN", "KAVAK", "KIA", "MITSUBISHI", "FORD MOTOR", "GEELY", "JEEP", "INFINITI", "PEUGEOT", "CHIREY", "RENAULT", "TOYOTA", "MG", "BBVA AUTOMARKET", "HONDA"],
+        "BAIC": ["MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", "JETOUR", "CHANGAN", "JAC", "MOTORNATION", "BAIC"]
+    }
+    
+    dg_todas_foco = list(set([m for sub in GRUPOS_VISTAS.values() for m in sub]))
+    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_v_final_final")
 
     if dg_archivo:
-        dg_df_raw = pd.read_excel(dg_archivo) if dg_archivo.name.endswith('.xlsx') else pd.read_csv(dg_archivo)
+        if dg_archivo.name.endswith('.csv'):
+            dg_df_raw = pd.read_csv(dg_archivo)
+        else:
+            dg_df_raw = pd.read_excel(dg_archivo)
+        
         dg_df_raw.columns = [str(c).strip() for c in dg_df_raw.columns]
 
-        # PROCESAMIENTO LIMPIO: Tomamos los datos tal cual están en tu tabla
-        dg_temp = pd.DataFrame()
-        
-        # Usamos Inversión (MXN) que es la que te da los montos correctos en la tabla
-        inv_col = 'Inversión (MXN)' if 'Inversión (MXN)' in dg_df_raw.columns else 'monto'
-        
-        dg_temp['Monto'] = pd.to_numeric(dg_df_raw[inv_col], errors='coerce').fillna(0)
-        dg_temp['Periodo'] = dg_df_raw['yrmth'].apply(parse_yrmth)
-        
-        def asignar_medio(x):
-            v = str(x).upper()
-            if any(k in v for k in ['EXTERIOR', 'OOH']): return 'OOH'
-            if any(k in v for k in ['DIGITAL', 'ONLINE']): return 'ONLINE'
-            return 'OFFLINE'
-        
-        dg_temp['Medio_Final'] = dg_df_raw['FUENTE'].apply(asignar_medio)
-        
-        # REEMPLAZAR memoria para no duplicar filas al recargar
-        st.session_state.dg_memoria_historica = dg_temp
-        st.success("✅ Datos sincronizados con la tabla.")
+        # Normalización de datos
+        if '#Grupo' in dg_df_raw.columns:
+            dg_temp = dg_df_raw.copy()
+            dg_temp['Marca_Original'] = dg_temp['#Grupo']
+            dg_temp['Periodo'] = dg_temp['Año-mes']
+            dg_temp['Monto'] = pd.to_numeric(dg_temp['Inversión (MXN)'], errors='coerce').fillna(0)
+            dg_temp['Fuente_Raw'] = dg_temp['Fuente'].fillna('OTROS')
+        else:
+            dg_col_marca = next((c for c in dg_df_raw.columns if c.lower() in ['brand', 'marca']), None)
+            dg_cols_2026 = [c for c in dg_df_raw.columns if '26' in c]
+            if dg_col_marca and dg_cols_2026:
+                dg_temp = dg_df_raw.melt(id_vars=[dg_col_marca], value_vars=dg_cols_2026, var_name='Periodo', value_name='Monto')
+                dg_temp['Marca_Original'] = dg_temp[dg_col_marca]
+                dg_temp['Monto'] = pd.to_numeric(dg_temp['Monto'], errors='coerce').fillna(0)
+                dg_temp['Fuente_Raw'] = dg_temp['Marca_Original']
+            else: dg_temp = pd.DataFrame()
+
+        if not dg_temp.empty:
+            def dg_cat(x):
+                v = str(x).upper()
+                if any(k in v for k in ['BILLBOARD', 'BUS', 'OOH', 'VALLA', 'EXTERIOR']): return 'OOH'
+                if any(k in v for k in ['DIGITAL', 'SOCIAL', 'ONLINE', 'WEB']): return 'ONLINE'
+                if any(k in v for k in ['TV', 'RADIO', 'PRENSA', 'OFFLINE']): return 'OFFLINE'
+                return 'ONLINE'
+            
+            dg_temp['Medio_Final'] = dg_temp['Fuente_Raw'].apply(dg_cat)
+            dg_temp['Marca_Final'] = dg_temp['Marca_Original'].str.upper()
+            
+            # --- SOLUCIÓN AL ERROR: Convertir a Datetime ---
+            dg_temp['Periodo'] = pd.to_datetime(dg_temp['Periodo'], errors='coerce')
+            
+            st.session_state.dg_memoria_historica = dg_temp.dropna(subset=['Periodo'])
+            st.success("✅ Datos sincronizados correctamente.")
 
     if not st.session_state.dg_memoria_historica.empty:
-        # Pre-agrupamos los datos para que Altair no tenga que "adivinar" la suma
-        df_agrupado = st.session_state.dg_memoria_historica.groupby(['Periodo', 'Medio_Final'])['Monto'].sum().reset_index()
-        df_agrupado['Mes_Nombre'] = df_agrupado['Periodo'].dt.month_name()
+        df_display = st.session_state.dg_memoria_historica.copy()
+        import altair as alt
+        tabs = st.tabs(list(GRUPOS_VISTAS.keys()))
 
-        # Métricas de cabecera
-        t_total = df_agrupado['Monto'].sum()
-        t_on = df_agrupado[df_agrupado['Medio_Final'] == 'ONLINE']['Monto'].sum()
-        t_off = df_agrupado[df_agrupado['Medio_Final'] == 'OFFLINE']['Monto'].sum()
-        t_ooh = df_agrupado[df_agrupado['Medio_Final'] == 'OOH']['Monto'].sum()
+        for i, nombre_grupo in enumerate(GRUPOS_VISTAS.keys()):
+            with tabs[i]:
+                marcas = GRUPOS_VISTAS[nombre_grupo]
+                df_g = df_display[df_display['Marca_Final'].isin(marcas)]
+                
+                if not df_g.empty:
+                    # Agrupación para la gráfica
+                    df_agrupado = df_g.groupby(['Periodo', 'Medio_Final'])['Monto'].sum().reset_index()
+                    
+                    # AQUÍ YA NO DARÁ ERROR porque 'Periodo' es Datetime
+                    df_agrupado['Mes_Nombre'] = df_agrupado['Periodo'].dt.month_name()
+                    
+                    st.write(f"### Inversión {nombre_grupo}: ${df_g['Monto'].sum():,.0f}")
+                    
+                    chart = alt.Chart(df_agrupado).mark_bar().encode(
+                        x=alt.X('Periodo:T', title="Mes"),
+                        y=alt.Y('Monto:Q', title="Inversión"),
+                        color=alt.Color('Medio_Final:N', scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], range=['#2471A3', '#D35400', '#28B463'])),
+                        tooltip=['Mes_Nombre', 'Medio_Final', alt.Tooltip('Monto', format="$,.0f")]
+                    ).properties(height=450)
+                    
+                    st.altair_chart(chart, use_container_width=True)
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("TOTAL GRUPO", f"${t_total:,.0f}")
-        c2.metric("ONLINE", f"${t_on:,.0f}")
-        c3.metric("OFFLINE", f"${t_off:,.0f}")
-        c4.metric("OOH", f"${t_ooh:,.0f}")
-
-        # GRÁFICA CORREGIDA
-        base = alt.Chart(df_agrupado).encode(
-            x=alt.X('Mes_Nombre:N', sort=['January', 'February', 'March'], title="2026")
-        )
-
-        # Barras Apiladas
-        bars = base.mark_bar().encode(
-            y=alt.Y('Monto:Q', title="Inversión ($)", stack="zero"),
-            color=alt.Color('Medio_Final:N', 
-                           scale=alt.Scale(domain=['OFFLINE', 'ONLINE', 'OOH'], 
-                                           range=['#4494F6', '#1A237E', '#D87A4D'])),
-            tooltip=[alt.Tooltip('Mes_Nombre'), alt.Tooltip('Medio_Final'), alt.Tooltip('Monto', format='$,.0f')]
-        )
-
-        # Etiquetas dentro de los segmentos (ej: $319M)
-        text = bars.mark_text(dy=15, color='white', fontWeight='bold').encode(
-            text=alt.Text('Monto:Q', format='$.3s')
-        )
-
-        # Etiquetas de Totales sobre la barra (ej: $550M)
-        totals = base.mark_text(dy=-15, fontWeight='bold', size=14).encode(
-            y=alt.Y('sum(Monto):Q'),
-            text=alt.Text('sum(Monto):Q', format='$.3s')
-        )
-
-        st.altair_chart((bars + text + totals).properties(height=500), use_container_width=True)
-        
-        st.write("### Desglose de Tabla")
-        st.dataframe(df_agrupado.pivot_table(index='Medio_Final', columns='Mes_Nombre', values='Monto', aggfunc='sum').style.format("${:,.0f}"))
-
+    if st.sidebar.button("🗑️ Limpiar Datos Actuales", key="dg_clear"):
+        st.session_state.dg_memoria_historica = pd.DataFrame()
+        st.rerun()
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS (FINAL DEL SCRIPT)
 # ─────────────────────────────────────────────────────────────────────────────

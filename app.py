@@ -299,7 +299,7 @@ elif marca_seleccionada == "Dashboard Global":
     if 'dg_memoria_historica' not in st.session_state:
         st.session_state.dg_memoria_historica = pd.DataFrame()
 
-    # 1. LISTAS MAESTRAS (Incluye BAIC)
+    # Listas de marcas por pestaña
     GRUPOS_VISTAS = {
         "GWM": ["NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", "KIA", "GWM", "GEELY", "CHIREY OMODA", "MG", "GAC", "TOYOTA", "CHANGAN", "EXEED"],
         "JAC": ["BYD", "NISSAN", "RAM", "CHEVROLET", "VOLKSWAGEN", "KIA", "HYUNDAI", "GEELY", "CHIREY", "RENAULT", "HONDA", "FORD", "MITSUBISHI", "MG", "TOYOTA", "GWM MOTORS", "PEUGEOT", "GAC", "SUZUKI", "CHANGAN", "JAC", "JAC INDUSTRIA", "SEAT", "MAZDA", "FOTON", "JETOUR"],
@@ -307,80 +307,70 @@ elif marca_seleccionada == "Dashboard Global":
         "BAIC": ["MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", "JETOUR", "CHANGAN", "JAC", "MOTORNATION", "BAIC"]
     }
     
-    dg_todas_foco = list(set([m for sub in GRUPOS_VISTAS.values() for m in sub]))
-    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_v_final_final")
+    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_fix_final")
 
     if dg_archivo:
-        if dg_archivo.name.endswith('.csv'):
-            dg_df_raw = pd.read_csv(dg_archivo)
-        else:
-            dg_df_raw = pd.read_excel(dg_archivo)
-        
+        # Procesamiento de archivo
+        dg_df_raw = pd.read_csv(dg_archivo) if dg_archivo.name.endswith('.csv') else pd.read_excel(dg_archivo)
         dg_df_raw.columns = [str(c).strip() for c in dg_df_raw.columns]
 
-        # Normalización de datos
         if '#Grupo' in dg_df_raw.columns:
             dg_temp = dg_df_raw.copy()
-            dg_temp['Marca_Original'] = dg_temp['#Grupo']
-            dg_temp['Periodo'] = dg_temp['Año-mes']
             dg_temp['Monto'] = pd.to_numeric(dg_temp['Inversión (MXN)'], errors='coerce').fillna(0)
-            dg_temp['Fuente_Raw'] = dg_temp['Fuente'].fillna('OTROS')
-        else:
-            dg_col_marca = next((c for c in dg_df_raw.columns if c.lower() in ['brand', 'marca']), None)
-            dg_cols_2026 = [c for c in dg_df_raw.columns if '26' in c]
-            if dg_col_marca and dg_cols_2026:
-                dg_temp = dg_df_raw.melt(id_vars=[dg_col_marca], value_vars=dg_cols_2026, var_name='Periodo', value_name='Monto')
-                dg_temp['Marca_Original'] = dg_temp[dg_col_marca]
-                dg_temp['Monto'] = pd.to_numeric(dg_temp['Monto'], errors='coerce').fillna(0)
-                dg_temp['Fuente_Raw'] = dg_temp['Marca_Original']
-            else: dg_temp = pd.DataFrame()
-
-        if not dg_temp.empty:
-            def dg_cat(x):
-                v = str(x).upper()
-                if any(k in v for k in ['BILLBOARD', 'BUS', 'OOH', 'VALLA', 'EXTERIOR']): return 'OOH'
-                if any(k in v for k in ['DIGITAL', 'SOCIAL', 'ONLINE', 'WEB']): return 'ONLINE'
-                if any(k in v for k in ['TV', 'RADIO', 'PRENSA', 'OFFLINE']): return 'OFFLINE'
-                return 'ONLINE'
-            
-            dg_temp['Medio_Final'] = dg_temp['Fuente_Raw'].apply(dg_cat)
-            dg_temp['Marca_Final'] = dg_temp['Marca_Original'].str.upper()
-            
-            # --- SOLUCIÓN AL ERROR: Convertir a Datetime ---
-            dg_temp['Periodo'] = pd.to_datetime(dg_temp['Periodo'], errors='coerce')
+            dg_temp['Periodo'] = pd.to_datetime(dg_temp['Año-mes'], errors='coerce')
+            dg_temp['Marca_Final'] = dg_temp['#Grupo'].str.upper()
+            dg_temp['Medio_Final'] = dg_temp['Fuente'].str.upper().fillna('ONLINE')
             
             st.session_state.dg_memoria_historica = dg_temp.dropna(subset=['Periodo'])
-            st.success("✅ Datos sincronizados correctamente.")
+            st.success("✅ Datos sincronizados.")
 
     if not st.session_state.dg_memoria_historica.empty:
         df_display = st.session_state.dg_memoria_historica.copy()
         import altair as alt
+        
         tabs = st.tabs(list(GRUPOS_VISTAS.keys()))
 
         for i, nombre_grupo in enumerate(GRUPOS_VISTAS.keys()):
             with tabs[i]:
-                marcas = GRUPOS_VISTAS[nombre_grupo]
-                df_g = df_display[df_display['Marca_Final'].isin(marcas)]
+                marcas_foco = GRUPOS_VISTAS[nombre_grupo]
+                df_g = df_display[df_display['Marca_Final'].isin(marcas_foco)]
                 
                 if not df_g.empty:
-                    # Agrupación para la gráfica
-                    df_agrupado = df_g.groupby(['Periodo', 'Medio_Final'])['Monto'].sum().reset_index()
-                    
-                    # AQUÍ YA NO DARÁ ERROR porque 'Periodo' es Datetime
-                    df_agrupado['Mes_Nombre'] = df_agrupado['Periodo'].dt.month_name()
-                    
-                    st.write(f"### Inversión {nombre_grupo}: ${df_g['Monto'].sum():,.0f}")
-                    
-                    chart = alt.Chart(df_agrupado).mark_bar().encode(
-                        x=alt.X('Periodo:T', title="Mes"),
-                        y=alt.Y('Monto:Q', title="Inversión"),
-                        color=alt.Color('Medio_Final:N', scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], range=['#2471A3', '#D35400', '#28B463'])),
-                        tooltip=['Mes_Nombre', 'Medio_Final', alt.Tooltip('Monto', format="$,.0f")]
-                    ).properties(height=450)
-                    
-                    st.altair_chart(chart, use_container_width=True)
+                    # --- 1. TARJETAS DE MÉTRICAS REINTEGRADAS ---
+                    t_total = df_g['Monto'].sum()
+                    t_on = df_g[df_g['Medio_Final'].str.contains('ONLINE|DIGITAL', na=False)]['Monto'].sum()
+                    t_off = df_g[df_g['Medio_Final'].str.contains('OFFLINE|TV|RADIO|PRENSA', na=False)]['Monto'].sum()
+                    t_ooh = df_g[df_g['Medio_Final'].str.contains('OOH|EXTERIOR', na=False)]['Monto'].sum()
 
-    if st.sidebar.button("🗑️ Limpiar Datos Actuales", key="dg_clear"):
+                    st.markdown(f"### Resumen {nombre_grupo}")
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("TOTAL GRUPO", f"${t_total:,.0f}")
+                    c2.metric("ONLINE", f"${t_on:,.0f}")
+                    c3.metric("OFFLINE", f"${t_off:,.0f}")
+                    c4.metric("OOH", f"${t_ooh:,.0f}")
+                    st.divider()
+
+                    # --- 2. GRÁFICO CON BARRA MÁS ANCHA ---
+                    # Agrupamos por mes y medio para evitar barras traslapadas
+                    df_plot = df_g.groupby([df_g['Periodo'].dt.strftime('%B %Y'), 'Medio_Final'])['Monto'].sum().reset_index()
+                    df_plot.columns = ['Mes', 'Medio_Final', 'Monto']
+
+                    chart = alt.Chart(df_plot).mark_bar(
+                        size=60  # <-- Esto hace la barra más gruesa
+                    ).encode(
+                        x=alt.X('Mes:N', title="Mes", sort=None),
+                        y=alt.Y('Monto:Q', title="Inversión ($)", axis=alt.Axis(format="$.2s")),
+                        color=alt.Color('Medio_Final:N', 
+                                       scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], 
+                                                       range=['#2471A3', '#D35400', '#28B463'])),
+                        tooltip=['Mes', 'Medio_Final', alt.Tooltip('Monto', format="$,.0f")]
+                    ).properties(height=500)
+
+                    st.altair_chart(chart, use_container_width=True)
+                else:
+                    st.warning(f"No hay datos para las marcas de {nombre_grupo} en este archivo.")
+
+    if st.sidebar.button("🗑️ Limpiar Datos Actuales"):
         st.session_state.dg_memoria_historica = pd.DataFrame()
         st.rerun()
 # ─────────────────────────────────────────────────────────────────────────────

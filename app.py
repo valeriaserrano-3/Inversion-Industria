@@ -293,81 +293,67 @@ elif marca_seleccionada == "OOH":
         st.success("✅ OOH Procesado.")
 
 # --- BLOQUE DASHBOARD GLOBAL: UNIFICACIÓN TOTAL BASADA EN "SHORT NAME" ---
+# --- BLOQUE DASHBOARD GLOBAL: FIX CHEVROLET Y SUMATORIAS EXACTAS ---
 elif marca_seleccionada == "Dashboard Global":
     st.title("📊 Dashboard Estratégico 2026")
     
     if 'dg_memoria_historica' not in st.session_state:
         st.session_state.dg_memoria_historica = pd.DataFrame()
 
-    # 1. CATALOGO MAESTRO (Nombres finales según tu lista oficial)
+    # CATÁLOGO MAESTRO (Nombres finales exactos)
     GRUPOS_VISTAS = {
         "GWM": ["GWM MEXICO", "NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", "KIA", "GEELY", "CHIREY", "MG", "GAC", "TOYOTA", "CHANGAN MEXICO", "EXEED"],
         "JAC": ["JAC", "JAC INDUSTRIA", "BYD", "NISSAN", "RAM", "CHEVROLET", "VOLKSWAGEN", "KIA", "HYUNDAI", "GEELY", "CHIREY", "RENAULT", "HONDA", "FORD", "MITSUBISHI", "MG", "TOYOTA", "GWM MEXICO", "PEUGEOT", "GAC", "SUZUKI", "CHANGAN MEXICO", "SEAT", "MAZDA", "FOTON", "JETOUR"],
-        "KAVAK": ["KAVAK", "NISSAN", "GENERAL MOTORS", "HYUNDAI", "VOLKSWAGEN", "KIA", "MITSUBISHI", "FORD MOTOR", "GEELY", "JEEP", "INFINITI", "PEUGEOT", "CHIREY", "RENAULT", "TOYOTA", "MG", "BBVA AUTOMARKET", "HONDA"],
+        "KAVAK": ["KAVAK", "NISSAN", "CHEVROLET", "HYUNDAI", "VOLKSWAGEN", "KIA", "MITSUBISHI", "FORD", "GEELY", "JEEP", "INFINITI", "PEUGEOT", "CHIREY", "RENAULT", "TOYOTA", "MG", "BBVA AUTOMARKET", "HONDA"],
         "BAIC": ["BAIC", "MOTORNATION", "MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", "JETOUR", "CHANGAN MEXICO", "JAC"]
     }
     
-    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_final_ultra_fix")
+    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_fix_chevrolet_v5")
 
     if dg_archivo:
         try:
             df_raw = pd.read_csv(dg_archivo) if dg_archivo.name.endswith('.csv') else pd.read_excel(dg_archivo)
             df_raw.columns = [str(c).strip() for c in df_raw.columns]
-
-            # Prioridad absoluta a la columna que me indicaste
+            
+            # Usamos "short name" como columna maestra
             col_ref = "short name" if "short name" in df_raw.columns else "#Grupo"
 
             if col_ref in df_raw.columns:
                 df_temp = df_raw.copy()
                 
-                # --- 2. LÓGICA DE UNIFICACIÓN AGRESIVA POR PALABRA CLAVE ---
-                def unificar_marcas_maestro(valor):
+                # --- FUNCIÓN DE UNIFICACIÓN QUIRÚRGICA ---
+                def unificar_marcas_dashboard(valor):
                     v = str(valor).upper().strip()
-            
-                   # Solo unifica si es exactamente Nissan o sus variantes de país
-                    if v in ["NISSAN", "NISSAN MEXICANA"]:
+                    
+                    # NISSAN: Solo si es Nissan o Nissan Mexico/Mexicana
+                    if v in ["NISSAN", "NISSAN MEXICO", "NISSAN MEXICANA"]:
                         return "NISSAN"
                     
-                    # Solo unifica si es exactamente Volkswagen o sus variantes de país
-                    if v in ["VOLKSWAGEN", "VOLKSWAGEN DE MEXICO"]:
+                    # VOLKSWAGEN: Solo si es VW o variantes de país
+                    if v in ["VOLKSWAGEN", "VOLKSWAGEN MEXICO", "VOLKSWAGEN DE MEXICO", "VW"]:
                         return "VOLKSWAGEN"
                     
-                    # Unificación de GWM
-                    if "GWM" in v: return "GWM"
+                    # CHEVROLET / GM: Unificar para evitar el salto de 59 a 109
+                    if v in ["CHEVROLET", "GENERAL MOTORS", "GM"]:
+                        return "CHEVROLET"
                     
-                    # Unificación de CHANGAN
-                    if "CHANGAN" in v: return "CHANGAN MEXICO"
+                    # GWM
+                    if "GWM" in v: return "GWM MEXICO"
                     
-                    # Unificación de CHIREY / OMODA / JAECOO
+                    # CHIREY
                     if any(k in v for k in ["CHIREY", "OMODA", "JAECOO"]): return "CHIREY"
-                    
-                    # Unificación de JAC
-                    if "JAC INDUSTRIA" in v: return "JAC INDUSTRIA"
-                    if "JAC" in v: return "JAC"
-                    
-                   # CHEVROLET: Evitar que sume doble (GM + Chevrolet)
-                   if v in ["CHEVROLET", "GENERAL MOTORS", "GM"]:
-                   return "CHEVROLET"
-                    
-                    # Respaldo para otras marcas del catálogo
-                    if "HYUNDAI" in v: return "HYUNDAI"
-                    if "TOYOTA" in v: return "TOYOTA"
-                    if "FORD" in v: return "FORD"
-                    
+
                     return v
 
-                # Crear la columna limpia
-                df_temp['Marca_Final'] = df_temp[col_ref].apply(unificar_marcas_maestro)
-                
-                # Procesar Monto
+                df_temp['Marca_Final'] = df_temp[col_ref].apply(unificar_marcas_dashboard)
                 df_temp['Monto'] = pd.to_numeric(df_temp['Inversión (MXN)'], errors='coerce').fillna(0)
                 
-                # Procesar Fecha
+                # Limpieza de Meses
                 df_temp['Mes_Raw'] = df_temp['Año-mes'].astype(str).str.replace("'", "").str.strip().str.lower()
                 mapa_meses = {'jan': 'Enero', 'feb': 'Febrero', 'mar': 'Marzo', 'apr': 'Abril', 'may': 'Mayo', 'jun': 'Junio'}
-                df_temp['Mes_Nombre'] = df_temp['Mes_Raw'].str[:3].map(mapa_meses).fillna("Desconocido")
+                df_temp['Mes_Nombre'] = df_temp['Mes_Raw'].str[:3].map(mapa_meses).fillna("Otros")
                 
-                # Clasificar Medios
+                # Medios
                 def cat_medio(x):
                     f = str(x).upper()
                     if any(k in f for k in ['OOH', 'EXTERIOR', 'VALLA', 'MUPI', 'RELOJ', 'KIOSCO', 'COLUMNA', 'SITIO']): return 'OOH'
@@ -376,15 +362,15 @@ elif marca_seleccionada == "Dashboard Global":
                 df_temp['Medio_Final'] = df_temp['Fuente'].apply(cat_medio)
                 
                 st.session_state.dg_memoria_historica = df_temp
-                st.success(f"✅ Catálogo aplicado. VW, Nissan y GWM unificados desde '{col_ref}'.")
+                st.success("✅ Datos procesados. Chevrolet, Nissan y VW ajustados.")
 
         except Exception as e:
-            st.error(f"Error al procesar el catálogo: {e}")
+            st.error(f"Error: {e}")
 
-    # --- 3. DASHBOARD Y GRÁFICAS ---
+    # --- RENDERIZADO ---
     if not st.session_state.dg_memoria_historica.empty:
         df_full = st.session_state.dg_memoria_historica
-        mes_sel = st.selectbox("📅 Selecciona el mes:", [m for m in df_full['Mes_Nombre'].unique() if m != "Desconocido"])
+        mes_sel = st.selectbox("📅 Selecciona el mes:", [m for m in df_full['Mes_Nombre'].unique() if m != "Otros"])
         df_mes = df_full[df_full['Mes_Nombre'] == mes_sel]
         
         import altair as alt
@@ -392,34 +378,31 @@ elif marca_seleccionada == "Dashboard Global":
 
         for i, grupo in enumerate(GRUPOS_VISTAS.keys()):
             with tabs[i]:
-                marcas_oficiales = GRUPOS_VISTAS[grupo]
-                df_g = df_mes[df_mes['Marca_Final'].isin(marcas_oficiales)]
+                marcas_ok = GRUPOS_VISTAS[grupo]
+                # Filtramos SOLO las marcas del catálogo
+                df_g = df_mes[df_mes['Marca_Final'].isin(marcas_ok)]
                 
                 if not df_g.empty:
-                    # Cálculo de métricas unificadas
-                    t_tot = df_g['Monto'].sum()
-                    t_on = df_g[df_g['Medio_Final'] == 'ONLINE']['Monto'].sum()
-                    t_off = df_g[df_g['Medio_Final'] == 'OFFLINE']['Monto'].sum()
-                    t_ooh = df_g[df_g['Medio_Final'] == 'OOH']['Monto'].sum()
-
                     st.markdown(f"## {grupo} - {mes_sel}")
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("TOTAL GRUPO", f"${t_tot:,.0f}")
-                    c2.metric("ONLINE", f"${t_on:,.0f}")
-                    c3.metric("OFFLINE", f"${t_off:,.0f}")
-                    c4.metric("OOH", f"${t_ooh:,.0f}")
                     
-                    # Gráfica consolidada
+                    # Métricas con sumatorias limpias
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("TOTAL GRUPO", f"${df_g['Monto'].sum():,.0f}")
+                    c2.metric("ONLINE", f"${df_g[df_g['Medio_Final'] == 'ONLINE']['Monto'].sum():,.0f}")
+                    c3.metric("OFFLINE", f"${df_g[df_g['Medio_Final'] == 'OFFLINE']['Monto'].sum():,.0f}")
+                    c4.metric("OOH", f"${df_g[df_g['Medio_Final'] == 'OOH']['Monto'].sum():,.0f}")
+                    
+                    # Gráfica
                     chart = alt.Chart(df_g).mark_bar(size=120).encode(
                         x=alt.X('Mes_Nombre:N', title="Mes"),
-                        y=alt.Y('sum(Monto):Q', title="Inversión Total ($)"),
+                        y=alt.Y('sum(Monto):Q', title="Inversión ($)"),
                         color=alt.Color('Medio_Final:N', scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], range=['#2471A3', '#D35400', '#28B463'])),
                         tooltip=['Medio_Final', alt.Tooltip('sum(Monto)', format="$,.0f")]
                     ).properties(height=450)
                     st.altair_chart(chart, use_container_width=True)
 
-                    st.write("### Detalle por Marca (Unificada)")
-                    # Sumamos todas las variantes (Nissan + Nissan Mexicana = 1 solo Nissan)
+                    st.write("### Detalle Consolidado (Sin duplicados)")
+                    # Agrupamos para que Chevrolet solo aparezca UNA vez con su suma real
                     df_t = df_g.groupby('Marca_Final')['Monto'].sum().reset_index().sort_values('Monto', ascending=False)
                     st.dataframe(df_t.style.format({"Monto": "${:,.2f}"}), use_container_width=True)
 # ─────────────────────────────────────────────────────────────────────────────

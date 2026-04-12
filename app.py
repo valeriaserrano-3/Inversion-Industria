@@ -228,6 +228,7 @@ elif marca_seleccionada == "JAC":
             final_df = pd.concat(dataframes, ignore_index=True)
             st.write("Vista previa de los datos unificados:")
             st.dataframe(final_df.head())
+            
 # --- BLOQUE KAVAK ---
 elif marca_seleccionada == "KAVAK":
     st.subheader("📍 Panel KAVAK")
@@ -287,52 +288,58 @@ elif marca_seleccionada == "KAVAK":
         except Exception as e:
             st.error(f"Error al procesar Kavak: {e}")
 
-# --- LÓGICA DE NAVEGACIÓN ---
-# Asegúrate de que los nombres aquí coincidan con los del selectbox del sidebar
-if marca_seleccionada == "GWM":
-    st.subheader("📍 Panel GWM")
-    # ... (tu código de GWM)
-
-elif marca_seleccionada == "JAC":
-    st.subheader("📍 Panel JAC")
-    # ... (tu código de JAC)
-
-elif marca_seleccionada == "KAVAK":
-    st.subheader("📍 Panel KAVAK")
-    # Este es el cargador de archivos para Kavak
-    f_kav = st.file_uploader("Subir Naming KAVAK", type=['xlsx'], key="kavak_uploader")
-    if f_kav:
-        st.success("Archivo de Kavak cargado")
-
-elif marca_seleccionada == "Industria Off":  # <--- REVISA QUE ESTE NOMBRE SEA IGUAL AL DEL MENU
+# --- BLOQUE INDUSTRIA OFF (Antes Industria HR) ---
+elif marca_seleccionada == "Industria Off":
     st.subheader("📊 Panel Industria Off (Reportes HR Ratings)")
     
-    # 1. Sección de Multiplicadores
-    with st.expander("⚙️ Configurar Multiplicadores de Inversión", expanded=True):
-        c1, c2, c3 = st.columns(3)
-        m_tv = c1.number_input("Factor TV", value=1.3, key="m_tv")
-        m_rd = c2.number_input("Factor Radio", value=1.3, key="m_rd")
-        m_pr = c3.number_input("Factor Prensa", value=1.0, key="m_pr")
+    # Sección de multiplicadores editables
+    with st.expander("⚙️ Configurar Multiplicadores de Inversión (Factores)", expanded=True):
+        col_m1, col_m2, col_m3 = st.columns(3)
+        with col_m1:
+            m_tv = st.number_input("Factor TV", min_value=1.0, max_value=5.0, value=1.3, step=0.1)
+        with col_m2:
+            m_rd = st.number_input("Factor Radio", min_value=1.0, max_value=5.0, value=1.3, step=0.1)
+        with col_m3:
+            m_pr = st.number_input("Factor Prensa", min_value=1.0, max_value=5.0, value=1.0, step=0.1)
             
-    # 2. SECCIÓN DE CARGA DE ARCHIVOS (Esto es lo que no te sale)
-    st.info("Sube los archivos de HR Ratings aquí abajo:")
+    multiplicadores_usuario = {
+        "TELEVISION": m_tv,
+        "RADIO": m_rd,
+        "PRENSA": m_pr
+    }
+
+    st.info("Sube los archivos de HR Ratings para procesar la inversión Offline de la industria.")
     
     tab1, tab2, tab3 = st.tabs(["📺 Televisión", "📻 Radio", "📰 Prensa"])
     
     with tab1:
-        f_tv = st.file_uploader("Reporte HR - TV", type=['xlsx'], key="hr_tv_uploader")
+        f_tv = st.file_uploader("Reporte HR - TV", type=['xlsx'], key="hr_tv")
     with tab2:
-        f_rd = st.file_uploader("Reporte HR - Radio", type=['xlsx'], key="hr_rd_uploader")
+        f_rd = st.file_uploader("Reporte HR - Radio", type=['xlsx'], key="hr_rd")
     with tab3:
-        f_pr = st.file_uploader("Reporte HR - Prensa", type=['xlsx'], key="hr_pr_uploader")
+        f_pr = st.file_uploader("Reporte HR - Prensa", type=['xlsx'], key="hr_pr")
         
-    # 3. Botón de Procesar
     if st.button("Procesar Industria Off"):
-        if f_tv or f_rd or f_pr:
-            st.success("Procesando datos con los factores seleccionados...")
-            # Aquí va tu función de procesamiento
-        else:
-            st.warning("Por favor, sube al menos un archivo antes de procesar.")
+        list_ind = []
+        
+        def process_hr_custom(file, medio_key):
+            df_temp = pd.read_excel(file)
+            # Se usa la función de procesamiento base
+            res = process_hr_ratings(df_temp, medio_key)
+            # Se aplica el factor elegido por el usuario en la interfaz
+            factor = multiplicadores_usuario.get(medio_key, 1.0)
+            res['Inversión F30'] = res['Inversión (MXN)'] * factor
+            return res
+
+        if f_tv: list_ind.append(process_hr_custom(f_tv, "TELEVISION"))
+        if f_rd: list_ind.append(process_hr_custom(f_rd, "RADIO"))
+        if f_pr: list_ind.append(process_hr_custom(f_pr, "PRENSA"))
+        
+        if list_ind:
+            final_df = pd.concat(list_ind, ignore_index=True)
+            st.success(f"✅ Industria Off procesada con éxito ({len(final_df)} filas).")
+            st.dataframe(final_df.head())
+            
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS
 # ─────────────────────────────────────────────────────────────────────────────

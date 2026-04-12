@@ -355,10 +355,14 @@ elif marca_seleccionada == "OOH":
 # --- BLOQUE DASHBOARD GLOBAL ---
 
 elif marca_seleccionada == "Dashboard Global":
-    st.title("📊 Análisis de Inversión 2026")
-    st.info("Filtro activo: Solo se muestran datos desde Enero 2026.")
+    st.title("📊 Dashboard Estratégico 2026")
+    st.info("Filtro: Datos desde Enero 2026. Los meses se acumulan al subir archivos.")
 
-    # Listas de Marcas Foco según tus fotos
+    # 1. MEMORIA PARA MESES (Evita que se borre Enero al subir Febrero)
+    if 'memoria_2026' not in st.session_state:
+        st.session_state.memoria_2026 = pd.DataFrame()
+
+    # --- DICCIONARIO DE MARCAS FOCO ---
     GRUPOS_FOCO = {
         "GWM": ["GWM", "GWM MOTORS", "HAVAL", "TANK", "ORA", "POER", "WEY"],
         "JAC": ["JAC", "JAC MOTORS", "JAC INDUSTRIA"],
@@ -367,73 +371,80 @@ elif marca_seleccionada == "Dashboard Global":
     }
     todas_foco = [m for sub in GRUPOS_FOCO.values() for m in sub]
 
-    f_master = st.file_uploader("Subir archivos (Descarga o TableBuilder)", type=['xlsx', 'csv'], key="uploader_global_unique")
+    # Cargador con KEY ÚNICA para evitar el error de la captura
+    f_master = st.file_uploader("Subir Reporte (Ene, Feb, Mar...)", type=['xlsx', 'csv'], key="cargador_global_2026")
 
     if f_master:
-        # 1. Leer el archivo (usamos el skiprows=3 que te funcionó)
-        if f_master.name.endswith('.csv'):
-            df_dash = pd.read_csv(f_master)
-        else:
-            df_dash = pd.read_excel(f_master, skiprows=3) 
-
-        # 2. Limpiar columnas
-        df_dash.columns = [str(c).strip() for c in df_dash.columns]
-        marca_col = next((c for c in df_dash.columns if c.lower() in ['brand', 'marca']), None)
+        # Leer archivo (skiprows=3 es el que te funcionó en los anteriores)
+        df_raw = pd.read_excel(f_master, skiprows=3) if f_master.name.endswith('.xlsx') else pd.read_csv(f_master, skiprows=3)
+        df_raw.columns = [str(c).strip() for c in df_raw.columns]
         
-        # Detectar columnas de meses 2026 (Jan-26, Feb-26, etc.)
-        cols_2026 = [c for c in df_dash.columns if '26' in c]
+        # Buscar columna de marca y meses
+        marca_col = next((c for c in df_raw.columns if c.lower() in ['brand', 'marca']), None)
+        cols_2026 = [c for c in df_raw.columns if '26' in c]
 
         if marca_col and cols_2026:
-            # Limpiar filas de basura o totales
-            df_dash = df_dash[df_dash[marca_col].notna()]
-            df_dash = df_dash[~df_dash[marca_col].str.contains('Total|Share', case=False, na=False)]
+            # Limpiar filas vacías o totales
+            df_raw = df_raw[df_raw[marca_col].notna()]
+            df_raw = df_raw[~df_raw[marca_col].str.contains('Total|Share', case=False, na=False)]
 
-            # 3. Clasificación de Medios (Billboards -> OOH)
-            # En estos archivos, a veces el medio viene en la columna Brand debajo de la marca
-            def categorizar_medios(x):
+            # Convertir a formato vertical (Melt)
+            df_melt = df_raw.melt(id_vars=[marca_col], value_vars=cols_2026, var_name='Mes', value_name='Inversión')
+            df_melt['Inversión'] = pd.to_numeric(df_melt['Inversión'], errors='coerce').fillna(0)
+
+            # --- NORMALIZACIÓN DE MEDIOS (Billboards -> OOH) ---
+            def categorizar_rapido(x):
                 val = str(x).upper()
-                if any(kw in val for kw in ['BILLBOARD', 'BUS', 'OOH', 'VALLA', 'EXTERIOR']): return 'OOH'
+                if any(kw in val for kw in ['BILLBOARD', 'BUS', 'OOH', 'VALLA', 'EXTERIOR', 'MUPI']): return 'OOH'
                 if any(kw in val for kw in ['DIGITAL', 'SOCIAL', 'FACEBOOK', 'GOOGLE', 'WEB']): return 'DIGITAL'
                 return 'OTROS'
 
-            # 4. CREAR VISTAS (TABS)
-            tab1, tab2 = st.tabs(["🎯 Marcas Foco", "🌐 Industria Completa"])
-
-            with tab1:
-                st.subheader("Marcas: GWM, JAC, KAVAK, BAIC")
-                df_foco = df_dash[df_dash[marca_col].str.upper().isin(todas_foco)].copy()
-                
-                if not df_foco.empty:
-                    # Matriz Marca x Mes
-                    df_pivot_f = df_foco.set_index(marca_col)[cols_2026]
-                    df_pivot_f['TOTAL'] = df_pivot_f.sum(axis=1)
-                    st.dataframe(df_pivot_f.sort_values('TOTAL', ascending=False).style.format("${:,.2f}"))
-
-                    # Gráfica Apilada
-                    import altair as alt
-                    df_plot = df_pivot_f.drop(columns=['TOTAL']).reset_index().melt(id_vars=marca_col)
-                    df_plot.columns = ['Marca', 'Mes', 'Inversión']
-                    # Asignar medio para el color de la gráfica
-                    df_plot['Medio'] = df_plot['Marca'].apply(categorizar_medios)
-
-                    chart = alt.Chart(df_plot).mark_bar().encode(
-                        x=alt.X('Mes:O', sort='ascending'),
-                        y=alt.Y('sum(Inversión):Q', title="Inversión Acumulada"),
-                        color=alt.Color('Medio:N', title="Categoría de Medio"),
-                        tooltip=['Marca', 'Mes', alt.Tooltip('Inversión', format="$,.2f")]
-                    ).properties(height=400)
-                    st.altair_chart(chart, use_container_width=True)
-                else:
-                    st.warning("No se encontraron las marcas foco en este archivo.")
-
-            with tab2:
-                st.subheader("Top 20 Industria General")
-                df_pivot_gen = df_dash.set_index(marca_col)[cols_2026]
-                df_pivot_gen['TOTAL'] = df_pivot_gen.sum(axis=1)
-                st.dataframe(df_pivot_gen.sort_values('TOTAL', ascending=False).head(20).style.format("${:,.2f}"))
-
+            df_melt['Medio_Limpio'] = df_melt[marca_col].apply(categorizar_rapido)
+            
+            # Guardar en memoria y quitar duplicados
+            st.session_state.memoria_2026 = pd.concat([st.session_state.memoria_2026, df_melt]).drop_duplicates()
+            st.success("✅ Datos integrados al historial.")
         else:
-            st.error("No se encontró la columna 'Brand' o meses de 2026.")
+            st.error("No se detectó la columna 'Brand' o meses de '26'.")
+
+    # --- MOSTRAR RESULTADOS ---
+    if not st.session_state.memoria_2026.empty:
+        df_hist = st.session_state.memoria_2026.copy()
+        
+        # Tabs con keys únicas internas
+        t1, t2 = st.tabs(["🎯 Marcas Foco", "🌐 Industria Total"])
+
+        with t1:
+            df_f = df_hist[df_hist[marca_col].str.upper().isin(todas_foco)]
+            if not df_f.empty:
+                # Matriz Marca vs Mes
+                st.write("### 🏢 Inversión por Marca y Mes")
+                piv_f = df_f.pivot_table(index=marca_col, columns='Mes', values='Inversión', aggfunc='sum', fill_value=0)
+                st.dataframe(piv_f.style.format("${:,.2f}"), use_container_width=True)
+
+                # Gráfica Apilada por Medio
+                import altair as alt
+                st.write("### 📈 Composición por Medio (Apilada)")
+                chart = alt.Chart(df_f).mark_bar().encode(
+                    x=alt.X('Mes:O', sort='ascending'),
+                    y=alt.Y('sum(Inversión):Q', title="Inversión Total"),
+                    color=alt.Color('Medio_Limpio:N', title="Medio"),
+                    tooltip=[marca_col, 'Mes', alt.Tooltip('Inversión', format="$,.2f")]
+                ).properties(height=350)
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.info("No hay datos de GWM, JAC, KAVAK o BAIC aún.")
+
+        with t2:
+            st.write("### Top 20 Mercado General")
+            piv_gen = df_hist.pivot_table(index=marca_col, columns='Mes', values='Inversión', aggfunc='sum', fill_value=0)
+            piv_gen['Total'] = piv_gen.sum(axis=1)
+            st.dataframe(piv_gen.sort_values('Total', ascending=False).head(20).style.format("${:,.2f}"), use_container_width=True)
+
+    # Botón de reset con KEY ÚNICA
+    if st.sidebar.button("🗑️ Borrar Histórico 2026", key="btn_reset_global"):
+        st.session_state.memoria_2026 = pd.DataFrame()
+        st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS (FINAL DEL SCRIPT)

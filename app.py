@@ -347,7 +347,7 @@ elif marca_seleccionada == "Dashboard Global":
                         
                     # Chirey: Unificar las marcas
                     if v in ["CHERY", "CHIREY", "Chirey Motor", "CHIREY MOTOR MEXICO", "JETOUR MEXICO", "JAECOO", "OMODA", "OMODA+JAECOO"]:
-                        return "CHIREY MEXICO"
+                        return "CHIREY"
                         
                     # MG: Unificar las marcas
                     if v in ["MG", "MG MOTOR", "MG MOTORS", "MG ROVER MEXICO", "MORRIS GARAGES", "MORRIS MOTORS"]:

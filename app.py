@@ -334,7 +334,7 @@ elif marca_seleccionada == "Dashboard Global":
                         return "VOLKSWAGEN"
                     
                     # CHEVROLET / GM: Unificar para evitar el salto de 59 a 109
-                    if v in ["CHEVROLET", "GENERAL MOTORS", "GM"]:
+                    if v in ["CHEVROLET", "GENERAL MOTORS", "GM", "GENERAL MOTORS MEX", "GMC"]:
                         return "CHEVROLET"
                     
                     # GWM

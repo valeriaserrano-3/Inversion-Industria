@@ -293,36 +293,37 @@ elif marca_seleccionada == "INDUSTRIA (HR)":
     st.subheader("📊 Panel Industria (HR Ratings)")
     
     with st.expander("⚙️ Configurar Multiplicadores de Inversión", expanded=True):
-        # 1. Nuevo factor que afecta a TODO
-        m_general = st.number_input("Factor General (Base)", min_value=1.0, value=1.0, step=0.1, help="Primero se multiplica por este valor")
+        # Factor General (por defecto 1.3)
+        m_general = st.number_input("Factor General (Base)", min_value=0.1, value=1.3, step=0.1)
         
-        st.divider() # Línea divisoria
+        st.divider()
         
-        # 2. Factores específicos por medio
         col_m1, col_m2, col_m3 = st.columns(3)
         with col_m1:
-            m_tv = st.number_input("Factor TV", min_value=1.0, value=1.3, step=0.1)
+            # Factor Tele Abierta (0.4)
+            m_tv_abierta = st.number_input("Factor Tele Abierta", min_value=0.0, value=0.4, step=0.05)
         with col_m2:
-            m_rd = st.number_input("Factor Radio", min_value=1.0, value=1.3, step=0.1)
+            # Factor Tele Paga/Local (0.6)
+            m_tv_paga = st.number_input("Factor Tele Paga/Local", min_value=0.0, value=0.6, step=0.05)
         with col_m3:
-            m_pr = st.number_input("Factor Prensa", min_value=1.0, value=1.0, step=0.1)
+            # Factor Radio (0.7)
+            m_radio = st.number_input("Factor Radio", min_value=0.0, value=0.7, step=0.05)
             
+    # Mapeo de factores para la función
     multiplicadores_usuario = {
-        "TELEVISION": m_tv,
-        "RADIO": m_rd,
-        "PRENSA": m_pr
+        "TELEVISION ABIERTA": m_tv_abierta,
+        "TELEVISION PAGA": m_tv_paga,
+        "RADIO": m_radio
     }
 
-    st.info(f"Fórmula aplicada: (Inversión × {m_general}) × Factor de Medio")
+    st.info(f"Fórmula: (Tarifa × {m_general}) × Factor del Medio")
     
-    tab1, tab2, tab3 = st.tabs(["📺 Televisión", "📻 Radio", "📰 Prensa"])
+    tab1, tab2 = st.tabs(["📺 Televisión", "📻 Radio"])
     
     with tab1:
         f_tv = st.file_uploader("Reporte HR - TV", type=['xlsx'], key="hr_tv")
     with tab2:
         f_rd = st.file_uploader("Reporte HR - Radio", type=['xlsx'], key="hr_rd")
-    with tab3:
-        f_pr = st.file_uploader("Reporte HR - Prensa", type=['xlsx'], key="hr_pr")
         
     if st.button("Procesar Industria"):
         list_ind = []
@@ -331,22 +332,24 @@ elif marca_seleccionada == "INDUSTRIA (HR)":
             df_temp = pd.read_excel(file)
             res = process_hr_ratings(df_temp, medio_key)
             
-            # --- AQUÍ SUCEDE LA DOBLE MULTIPLICACIÓN ---
+            # Lógica de detección para separar Tele Abierta de Paga si vienen en el mismo archivo
+            # O aplicar el factor según la 'medio_key'
             factor_medio = multiplicadores_usuario.get(medio_key, 1.0)
             
-            # Paso 1: Multiplicar por Factor General
-            # Paso 2: Multiplicar por Factor de Medio
+            # DOBLE MULTIPLICACIÓN AUTOMÁTICA
             res['Inversión F30'] = (res['Inversión (MXN)'] * m_general) * factor_medio
             
             return res
 
-        if f_tv: list_ind.append(process_hr_custom(f_tv, "TELEVISION"))
-        if f_rd: list_ind.append(process_hr_custom(f_rd, "RADIO"))
-        if f_pr: list_ind.append(process_hr_custom(f_pr, "PRENSA"))
+        if f_tv:
+            # Aquí podrías separar por contenido si el excel trae ambos
+            list_ind.append(process_hr_custom(f_tv, "TELEVISION ABIERTA"))
+        if f_rd:
+            list_ind.append(process_hr_custom(f_rd, "RADIO"))
         
         if list_ind:
             final_df = pd.concat(list_ind, ignore_index=True)
-            st.success(f"✅ Procesadas {len(final_df)} filas con doble factor.")
+            st.success("✅ Procesado con Factores: General 1.3 | TV 0.4-0.6 | Radio 0.7")
             st.dataframe(final_df.head())
             
 # ─────────────────────────────────────────────────────────────────────────────

@@ -174,11 +174,60 @@ if marca_seleccionada == "GWM":
 
 # --- BLOQUE JAC ---
 elif marca_seleccionada == "JAC":
-    st.subheader("📍 Panel JAC")
-    f_jac = st.file_uploader("Subir Naming JAC", type=['xlsx'])
-    if f_jac and st.button("Procesar JAC"):
-        final_df = process_naming_convention(pd.read_excel(f_jac), "JAC INDUSTRIA")
-        st.success("JAC procesado correctamente")
+    st.subheader("📍 Panel JAC (Online + Offline)")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        f_jac_off = st.file_uploader("Subir Naming JAC (Offline)", type=['xlsx'], key="jac_off")
+    with col2:
+        f_jac_on = st.file_uploader("Subir Seguimiento Digital (Online)", type=['xlsx'], key="jac_on")
+
+    if st.button("Procesar JAC"):
+        dataframes = []
+        
+        # 1. Procesar Offline si existe
+        if f_jac_off:
+            df_off = pd.read_excel(f_jac_off)
+            dataframes.append(process_naming_convention(df_off, "JAC INDUSTRIA"))
+            st.info("Archivo Offline de JAC cargado.")
+
+        # 2. Procesar Online si existe
+        if f_jac_on:
+            try:
+                # Intentar leer la hoja 'TOTAL FINAL'
+                df_on_raw = pd.read_excel(f_jac_on, sheet_name='TOTAL FINAL')
+                
+                # Extraer mes del nombre del archivo para la columna Año-mes
+                mes_detectado = get_month_from_name(f_jac_on.name)
+                
+                # Limpieza y Transformación Online
+                res_on = pd.DataFrame()
+                res_on['Fuente'] = 'Online'
+                res_on['Año-mes'] = mes_detectado if mes_detectado else "Revisar Fecha"
+                res_on['Año'] = datetime.now().year # O extraer del nombre
+                
+                # Inversión con multiplicador F30 (1.30)
+                inv_raw = pd.to_numeric(df_on_raw['Gasto'], errors='coerce').fillna(0)
+                res_on['Inversión (MXN)'] = inv_raw
+                res_on['Inversión F30'] = inv_raw * MULTIPLICADORES['online']
+                
+                res_on['#Grupo'] = "JAC INDUSTRIA"
+                res_on['modelo'] = df_on_raw['Modelo'].str.upper()
+                
+                # Usar el CAT_MAP para poner SUV, SEDAN, etc.
+                res_on['Categoría'] = res_on['modelo'].map(CAT_MAP).fillna('SUV')
+                res_on['medio'] = df_on_raw['Plataforma']
+                res_on['Producto'] = res_on['modelo']
+                
+                dataframes.append(res_on)
+                st.success("Archivo Online de JAC procesado con éxito.")
+            except Exception as e:
+                st.error(f"Error al procesar el archivo Online: {e}. Asegúrate de que tenga la pestaña 'TOTAL FINAL'.")
+
+        if dataframes:
+            final_df = pd.concat(dataframes, ignore_index=True)
+            st.write("Vista previa de los datos unificados:")
+            st.dataframe(final_df.head())
 
 # --- BLOQUE INDUSTRIA (HR) ---
 elif marca_seleccionada == "INDUSTRIA (HR)":

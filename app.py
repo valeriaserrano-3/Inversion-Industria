@@ -293,63 +293,65 @@ elif marca_seleccionada == "INDUSTRIA (HR)":
     st.subheader("📊 Panel Industria (HR Ratings)")
     
     with st.expander("⚙️ Configurar Multiplicadores de Inversión", expanded=True):
-        # Factor General (por defecto 1.3)
+        # Factor General (1.3 por defecto)
         m_general = st.number_input("Factor General (Base)", min_value=0.1, value=1.3, step=0.1)
         
         st.divider()
+        st.caption("Factores de Medio (Se aplican DESPUÉS del Factor General)")
         
-        col_m1, col_m2, col_m3 = st.columns(3)
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
         with col_m1:
-            # Factor Tele Abierta (0.4)
-            m_tv_abierta = st.number_input("Factor Tele Abierta", min_value=0.0, value=0.4, step=0.05)
+            m_tv_abierta = st.number_input("TV Abierta", value=0.40, step=0.05)
         with col_m2:
-            # Factor Tele Paga/Local (0.6)
-            m_tv_paga = st.number_input("Factor Tele Paga/Local", min_value=0.0, value=0.6, step=0.05)
+            m_tv_paga = st.number_input("TV Paga/Local", value=0.60, step=0.05)
         with col_m3:
-            # Factor Radio (0.7)
-            m_radio = st.number_input("Factor Radio", min_value=0.0, value=0.7, step=0.05)
+            m_radio = st.number_input("Radio", value=0.70, step=0.05)
+        with col_m4:
+            # Impresos bloqueado o informativo a 1.0 para que solo sea m_general * 1.0
+            m_impresos = st.number_input("Impresos", value=1.0, disabled=True, help="Solo se multiplica por el Factor General")
             
-    # Mapeo de factores para la función
-    multiplicadores_usuario = {
+    # Diccionario de factores
+    factores = {
         "TELEVISION ABIERTA": m_tv_abierta,
         "TELEVISION PAGA": m_tv_paga,
-        "RADIO": m_radio
+        "RADIO": m_radio,
+        "PRENSA": 1.0,
+        "REVISTAS": 1.0
     }
 
-    st.info(f"Fórmula: (Tarifa × {m_general}) × Factor del Medio")
+    tab1, tab2, tab3 = st.tabs(["📺 Televisión", "📻 Radio", "📰 Impresos"])
     
-    tab1, tab2 = st.tabs(["📺 Televisión", "📻 Radio"])
-    
-    with tab1:
-        f_tv = st.file_uploader("Reporte HR - TV", type=['xlsx'], key="hr_tv")
-    with tab2:
-        f_rd = st.file_uploader("Reporte HR - Radio", type=['xlsx'], key="hr_rd")
+    with tab1: f_tv = st.file_uploader("Excel de TV", type=['xlsx'], key="hr_tv")
+    with tab2: f_rd = st.file_uploader("Excel de Radio", type=['xlsx'], key="hr_rd")
+    with tab3: f_pr = st.file_uploader("Excel de Prensa/Revistas", type=['xlsx'], key="hr_pr")
         
     if st.button("Procesar Industria"):
         list_ind = []
         
         def process_hr_custom(file, medio_key):
             df_temp = pd.read_excel(file)
-            res = process_hr_ratings(df_temp, medio_key)
+            res = process_hr_ratings(df_temp, medio_key) # Función que extrae Tarifa
             
-            # Lógica de detección para separar Tele Abierta de Paga si vienen en el mismo archivo
-            # O aplicar el factor según la 'medio_key'
-            factor_medio = multiplicadores_usuario.get(medio_key, 1.0)
+            # LÓGICA DE MULTIPLICACIÓN
+            factor_medio = factores.get(medio_key, 1.0)
             
-            # DOBLE MULTIPLICACIÓN AUTOMÁTICA
+            # Cálculo final: (Tarifa * 1.3) * FactorMedio
+            # Si es Prensa: (Tarifa * 1.3) * 1.0  <-- Solo queda el 1.3
             res['Inversión F30'] = (res['Inversión (MXN)'] * m_general) * factor_medio
             
             return res
 
         if f_tv:
-            # Aquí podrías separar por contenido si el excel trae ambos
+            # Aquí idealmente separarías por canal, pero aplicamos el factor según el archivo
             list_ind.append(process_hr_custom(f_tv, "TELEVISION ABIERTA"))
         if f_rd:
             list_ind.append(process_hr_custom(f_rd, "RADIO"))
+        if f_pr:
+            list_ind.append(process_hr_custom(f_pr, "PRENSA"))
         
         if list_ind:
             final_df = pd.concat(list_ind, ignore_index=True)
-            st.success("✅ Procesado con Factores: General 1.3 | TV 0.4-0.6 | Radio 0.7")
+            st.success("✅ Procesado: Impresos (1.3) | Otros (1.3 + Factor Medio)")
             st.dataframe(final_df.head())
             
 # ─────────────────────────────────────────────────────────────────────────────

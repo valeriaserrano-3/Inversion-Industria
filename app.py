@@ -20,7 +20,7 @@ warnings.filterwarnings("ignore")
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Inversión Automotriz",
-    page_icon="🚗",
+    page_icon="✰",
     layout="wide",
 )
 
@@ -133,7 +133,7 @@ def process_hr_ratings(df, medio_nombre):
 # ─────────────────────────────────────────────────────────────────────────────
 # INTERFAZ DE USUARIO (STREAMLIT)
 # ─────────────────────────────────────────────────────────────────────────────
-st.title("🚀 Procesador de Inversión Automotriz")
+st.title("Procesador de Inversión Automotriz")
 st.markdown("Carga tus archivos según la marca para generar el consolidado.")
 
 # Menú lateral para elegir qué procesar
@@ -151,7 +151,7 @@ final_df = pd.DataFrame()
 
 # --- BLOQUE GWM ---
 if marca_seleccionada == "GWM":
-    st.subheader("📍 Panel GWM")
+    st.subheader("Panel GWM")
     col1, col2 = st.columns(2)
     with col1:
         f_off = st.file_uploader("Subir Naming Convention (Offline/OOH)", type=['xlsx'], key="gwm_off")
@@ -170,11 +170,11 @@ if marca_seleccionada == "GWM":
         
         if dataframes:
             final_df = pd.concat(dataframes, ignore_index=True)
-            st.success("✅ GWM Procesado. Revisa el resumen abajo.")
+            st.success("GWM Procesado. Revisa el resumen abajo.")
 
 # --- BLOQUE JAC ---
 elif marca_seleccionada == "JAC":
-    st.subheader("📍 Panel JAC (Online + Offline)")
+    st.subheader("Panel JAC (Online + Offline)")
     col1, col2 = st.columns(2)
     with col1:
         f_jac_off = st.file_uploader("Subir Naming JAC (Offline)", type=['xlsx'], key="jac_off")
@@ -208,11 +208,11 @@ elif marca_seleccionada == "JAC":
 
         if dataframes:
             final_df = pd.concat(dataframes, ignore_index=True)
-            st.success("✅ JAC Procesado correctamente.")
+            st.success("JAC Procesado correctamente.")
 
 # --- BLOQUE KAVAK ---
 elif marca_seleccionada == "KAVAK":
-    st.subheader("📍 Panel KAVAK")
+    st.subheader("Panel KAVAK")
     f_kavak = st.file_uploader("Subir Naming Convention KAVAK", type=['xlsx'], key="kavak_file")
     
     if f_kavak and st.button("Procesar KAVAK"):
@@ -231,19 +231,19 @@ elif marca_seleccionada == "KAVAK":
         res_kav['Producto'] = res_kav['modelo']
         res_kav['Categoría'] = df_kav.get('OBJETIVO', 'INSTITUCIONAL').str.upper()
         final_df = res_kav[res_kav['Inversión (MXN)'] > 0].copy()
-        st.success("✅ KAVAK Procesado.")
+        st.success("KAVAK Procesado.")
 
 # --- BLOQUE INDUSTRIA (HR) ---
 elif marca_seleccionada == "INDUSTRIA (HR)":
-    st.subheader("📊 Panel Industria (HR Ratings)")
-    with st.expander("⚙️ Configuración de Factores", expanded=False):
+    st.subheader("Panel Industria (HR Ratings)")
+    with st.expander("Configuración de Factores", expanded=False):
         m_general = st.number_input("Factor General", value=1.3)
         m_tv_abierta = st.number_input("TV Abierta", value=0.40)
         m_tv_paga = st.number_input("TV Paga", value=0.60)
         m_radio = st.number_input("Radio", value=0.70)
     
     factores = {"TELEVISION ABIERTA": m_tv_abierta, "TELEVISION PAGA": m_tv_paga, "RADIO": m_radio, "PRENSA": 1.0, "REVISTAS": 1.0}
-    t1, t2, t3 = st.tabs(["📺 TV", "📻 Radio", "📰 Impresos"])
+    t1, t2, t3 = st.tabs(["TV", "Radio", "Impresos"])
     with t1: f_tv = st.file_uploader("Excel TV", type=['xlsx'])
     with t2: f_rd = st.file_uploader("Excel Radio", type=['xlsx'])
     with t3: f_pr = st.file_uploader("Excel Impresos", type=['xlsx'])
@@ -259,11 +259,11 @@ elif marca_seleccionada == "INDUSTRIA (HR)":
                 list_ind.append(res)
         if list_ind:
             final_df = pd.concat(list_ind, ignore_index=True)
-            st.success("✅ Industria Procesada.")
+            st.success("Industria Procesada.")
 
 # --- BLOQUE ADMETRICKS ---
 elif marca_seleccionada == "ADMETRICKS":
-    st.subheader("📊 Panel Admetricks")
+    st.subheader("Panel Admetricks")
     BRAND_MAP = {"GWM MOTORS": "GWM Motors", "JAC MOTORS": "JAC INDUSTRIA", "KAVAK": "KAVAK"}
     f_adme = st.file_uploader("Subir Admetricks", type=['xlsx'])
     if f_adme and st.button("Procesar Admetricks"):
@@ -275,11 +275,11 @@ elif marca_seleccionada == "ADMETRICKS":
         res_ad['Fuente'] = 'Online'; res_ad['Categoría'] = 'ADMETRICKS'
         res_ad['Año-mes'] = pd.Timestamp.now().replace(day=1)
         final_df = res_ad[res_ad['Inversión (MXN)'] > 0].copy()
-        st.success("✅ Admetricks Procesado.")
+        st.success("Admetricks Procesado.")
 
 # --- BLOQUE OOH ---
 elif marca_seleccionada == "OOH":
-    st.subheader("🏢 Panel OOH")
+    st.subheader("Panel OOH")
     f_ooh = st.file_uploader("Subir OOH", type=['xlsx', 'csv'])
     if f_ooh and st.button("Procesar OOH"):
         df_ooh = pd.read_excel(f_ooh, skiprows=1) if not f_ooh.name.endswith('.csv') else pd.read_csv(f_ooh)
@@ -290,12 +290,12 @@ elif marca_seleccionada == "OOH":
         res_ooh['Inversión F30'] = inv_raw * 1.3
         res_ooh['Fuente'] = 'OOH'; res_ooh['Año-mes'] = pd.Timestamp.now().replace(day=1)
         final_df = res_ooh[res_ooh['Inversión (MXN)'] > 0].copy()
-        st.success("✅ OOH Procesado.")
+        st.success("OOH Procesado.")
 
 # --- BLOQUE DASHBOARD GLOBAL: UNIFICACIÓN TOTAL BASADA EN "SHORT NAME" ---
 # --- BLOQUE DASHBOARD GLOBAL: FIX CHEVROLET Y SUMATORIAS EXACTAS ---
 elif marca_seleccionada == "Dashboard Global":
-    st.title("📊 Dashboard Estratégico 2026")
+    st.title("Dashboard Estratégico 2026")
     
     if 'dg_memoria_historica' not in st.session_state:
         st.session_state.dg_memoria_historica = pd.DataFrame()
@@ -380,7 +380,7 @@ elif marca_seleccionada == "Dashboard Global":
                 df_temp['Medio_Final'] = df_temp['Fuente'].apply(cat_medio)
                 
                 st.session_state.dg_memoria_historica = df_temp
-                st.success("✅ Datos procesados. Chevrolet, Nissan y VW ajustados.")
+                st.success("Datos procesados. Chevrolet, Nissan y VW ajustados.")
 
         except Exception as e:
             st.error(f"Error: {e}")
@@ -388,7 +388,7 @@ elif marca_seleccionada == "Dashboard Global":
     # --- RENDERIZADO ---
     if not st.session_state.dg_memoria_historica.empty:
         df_full = st.session_state.dg_memoria_historica
-        mes_sel = st.selectbox("📅 Selecciona el mes:", [m for m in df_full['Mes_Nombre'].unique() if m != "Otros"])
+        mes_sel = st.selectbox("Selecciona el mes:", [m for m in df_full['Mes_Nombre'].unique() if m != "Otros"])
         df_mes = df_full[df_full['Mes_Nombre'] == mes_sel]
         
         import altair as alt
@@ -428,7 +428,7 @@ elif marca_seleccionada == "Dashboard Global":
 # ─────────────────────────────────────────────────────────────────────────────
 if not final_df.empty:
     st.divider()
-    st.subheader("✅ Resultado Listo")
+    st.subheader("Resultado Listo")
     
     # 1. MÉTRICAS (Números grandes en el formato que pediste)
     c1, c2, c3 = st.columns(3)
@@ -467,7 +467,7 @@ if not final_df.empty:
     # 3. BOTÓN DE DESCARGA
     csv = final_df.to_csv(index=False).encode('utf-8-sig')
     st.download_button(
-        label="⬇️ Descargar layout_automotriz.csv",
+        label="Descargar layout_automotriz.csv",
         data=csv,
         file_name=f"upload_to_automotriz_{datetime.now().strftime('%Y%m%d')}.csv",
         mime="text/csv",

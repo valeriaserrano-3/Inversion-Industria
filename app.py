@@ -373,96 +373,91 @@ elif marca_seleccionada == "Dashboard Global":
             st.session_state.dg_memoria_historica = pd.DataFrame()
             st.rerun()
 
-# --- BLOQUE DASHBOARD GLOBAL CORREGIDO ---
+# --- BLOQUE DASHBOARD GLOBAL CORREGIDO (GRÁFICA SIN DUPLICADOS) ---
 elif marca_seleccionada == "Dashboard Global":
     st.title("📊 Dashboard Estratégico 2026")
     
-    # Inicialización de memoria si no existe
     if 'dg_memoria_historica' not in st.session_state:
         st.session_state.dg_memoria_historica = pd.DataFrame()
 
     with st.sidebar:
-        if st.button("🗑️ Limpiar Memoria"):
+        if st.button("🗑️ Limpiar Datos Actuales"):
             st.session_state.dg_memoria_historica = pd.DataFrame()
             st.rerun()
 
-    dg_archivo = st.file_uploader("Subir Reporte Mensual (Layout Automotriz)", type=['xlsx', 'csv'], key="dg_uploader")
+    dg_archivo = st.file_uploader("Subir Reporte (Layout Automotriz)", type=['xlsx', 'csv'], key="dg_dashboard_v4")
 
     if dg_archivo:
-        # 1. Lectura de datos
         dg_df_raw = pd.read_excel(dg_archivo) if dg_archivo.name.endswith('.xlsx') else pd.read_csv(dg_archivo)
         dg_df_raw.columns = [str(c).strip() for c in dg_df_raw.columns]
 
-        # 2. Procesamiento Limpio (Evita que los montos se dupliquen)
+        # PROCESAMIENTO LIMPIO: Tomamos los datos tal cual están en tu tabla
         dg_temp = pd.DataFrame()
         
-        # Identificar columna de inversión (Usamos MXN para coincidir con tus capturas)
+        # Usamos Inversión (MXN) que es la que te da los montos correctos en la tabla
         inv_col = 'Inversión (MXN)' if 'Inversión (MXN)' in dg_df_raw.columns else 'monto'
         
         dg_temp['Monto'] = pd.to_numeric(dg_df_raw[inv_col], errors='coerce').fillna(0)
         dg_temp['Periodo'] = dg_df_raw['yrmth'].apply(parse_yrmth)
-        dg_temp['Marca_Final'] = dg_df_raw.get('#Grupo', 'SIN MARCA')
         
-        # Mapeo de medios para que coincidan con los nombres de tu gráfica
         def asignar_medio(x):
             v = str(x).upper()
-            if any(k in v for k in ['EXTERIOR', 'OOH', 'BILLBOARD']): return 'OOH'
-            if any(k in v for k in ['DIGITAL', 'ONLINE', 'SOCIAL']): return 'ONLINE'
+            if any(k in v for k in ['EXTERIOR', 'OOH']): return 'OOH'
+            if any(k in v for k in ['DIGITAL', 'ONLINE']): return 'ONLINE'
             return 'OFFLINE'
         
         dg_temp['Medio_Final'] = dg_df_raw['FUENTE'].apply(asignar_medio)
         
-        # GUARDAR EN SESIÓN (REEMPLAZAR para evitar duplicidad)
+        # REEMPLAZAR memoria para no duplicar filas al recargar
         st.session_state.dg_memoria_historica = dg_temp
-        st.success(f"✅ Datos cargados: {len(dg_temp)} filas procesadas.")
+        st.success("✅ Datos sincronizados con la tabla.")
 
-    # 3. Visualización (Si hay datos)
     if not st.session_state.dg_memoria_historica.empty:
-        df_plot = st.session_state.dg_memoria_historica.copy()
-        df_plot['Mes_Nombre'] = df_plot['Periodo'].dt.month_name()
+        # Pre-agrupamos los datos para que Altair no tenga que "adivinar" la suma
+        df_agrupado = st.session_state.dg_memoria_historica.groupby(['Periodo', 'Medio_Final'])['Monto'].sum().reset_index()
+        df_agrupado['Mes_Nombre'] = df_agrupado['Periodo'].dt.month_name()
 
-        # Métricas principales (Como en tu segunda captura)
-        t_on = df_plot[df_plot['Medio_Final'] == 'ONLINE']['Monto'].sum()
-        t_off = df_plot[df_plot['Medio_Final'] == 'OFFLINE']['Monto'].sum()
-        t_ooh = df_plot[df_plot['Medio_Final'] == 'OOH']['Monto'].sum()
-        t_total = t_on + t_off + t_ooh
+        # Métricas de cabecera
+        t_total = df_agrupado['Monto'].sum()
+        t_on = df_agrupado[df_agrupado['Medio_Final'] == 'ONLINE']['Monto'].sum()
+        t_off = df_agrupado[df_agrupado['Medio_Final'] == 'OFFLINE']['Monto'].sum()
+        t_ooh = df_agrupado[df_agrupado['Medio_Final'] == 'OOH']['Monto'].sum()
 
-        st.markdown("---")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("TOTAL GRUPO", f"${t_total:,.0f}")
         c2.metric("ONLINE", f"${t_on:,.0f}")
         c3.metric("OFFLINE", f"${t_off:,.0f}")
         c4.metric("OOH", f"${t_ooh:,.0f}")
 
-        # Gráfica de Barras Apiladas (Como en tu primera captura)
-        # Ordenamos los meses para que January vaya antes que February
-        bars = alt.Chart(df_plot).mark_bar().encode(
-            x=alt.X('Mes_Nombre:N', sort=['January', 'February', 'March'], title="Periodo 2026"),
-            y=alt.Y('sum(Monto):Q', title="Inversión Total"),
-            color=alt.Color('Medio_Final:N', 
-                           scale=alt.Scale(domain=['OFFLINE', 'ONLINE', 'OOH'], 
-                                           range=['#4494F6', '#1A237E', '#D87A4D']), # Colores de tu foto
-                           title="Medio"),
-            tooltip=[alt.Tooltip('Mes_Nombre'), alt.Tooltip('Medio_Final'), alt.Tooltip('sum(Monto)', format='$,.0f')]
-        ).properties(height=500)
-
-        # Etiquetas con los montos (ej: $319M)
-        text = bars.mark_text(dy=15, color='white', fontWeight='bold').encode(
-            text=alt.Text('sum(Monto):Q', format='$.3s')
+        # GRÁFICA CORREGIDA
+        base = alt.Chart(df_agrupado).encode(
+            x=alt.X('Mes_Nombre:N', sort=['January', 'February', 'March'], title="2026")
         )
 
-        # Etiqueta de total sobre la barra (ej: $550M)
-        totals = alt.Chart(df_plot).mark_text(dy=-15, fontWeight='bold', size=14).encode(
-            x=alt.X('Mes_Nombre:N', sort=['January', 'February']),
+        # Barras Apiladas
+        bars = base.mark_bar().encode(
+            y=alt.Y('Monto:Q', title="Inversión ($)", stack="zero"),
+            color=alt.Color('Medio_Final:N', 
+                           scale=alt.Scale(domain=['OFFLINE', 'ONLINE', 'OOH'], 
+                                           range=['#4494F6', '#1A237E', '#D87A4D'])),
+            tooltip=[alt.Tooltip('Mes_Nombre'), alt.Tooltip('Medio_Final'), alt.Tooltip('Monto', format='$,.0f')]
+        )
+
+        # Etiquetas dentro de los segmentos (ej: $319M)
+        text = bars.mark_text(dy=15, color='white', fontWeight='bold').encode(
+            text=alt.Text('Monto:Q', format='$.3s')
+        )
+
+        # Etiquetas de Totales sobre la barra (ej: $550M)
+        totals = base.mark_text(dy=-15, fontWeight='bold', size=14).encode(
             y=alt.Y('sum(Monto):Q'),
             text=alt.Text('sum(Monto):Q', format='$.3s')
         )
 
-        st.altair_chart(bars + text + totals, use_container_width=True)
+        st.altair_chart((bars + text + totals).properties(height=500), use_container_width=True)
         
-        # Tabla detallada opcional
-        with st.expander("Ver tabla de datos"):
-            st.dataframe(df_plot.style.format({"Monto": "${:,.0f}"}))
+        st.write("### Desglose de Tabla")
+        st.dataframe(df_agrupado.pivot_table(index='Medio_Final', columns='Mes_Nombre', values='Monto', aggfunc='sum').style.format("${:,.0f}"))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS (FINAL DEL SCRIPT)

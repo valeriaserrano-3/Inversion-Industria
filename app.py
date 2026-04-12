@@ -228,6 +228,64 @@ elif marca_seleccionada == "JAC":
             final_df = pd.concat(dataframes, ignore_index=True)
             st.write("Vista previa de los datos unificados:")
             st.dataframe(final_df.head())
+# --- BLOQUE KAVAK ---
+elif marca_seleccionada == "KAVAK":
+    st.subheader("📍 Panel KAVAK")
+    st.info("Este módulo procesa el Naming Convention de Kavak (Offline y OOH).")
+    
+    f_kavak = st.file_uploader("Subir Naming Convention KAVAK", type=['xlsx'], key="kavak_file")
+    
+    if f_kavak and st.button("Procesar KAVAK"):
+        try:
+            df_kav = pd.read_excel(f_kavak)
+            
+            # 1. Limpieza de columnas (quitar espacios)
+            df_kav.columns = [str(c).strip() for c in df_kav.columns]
+            
+            # 2. Definir lógica de Fuente (Basado en tu script original)
+            def get_fuente_kavak(medio):
+                medio_up = str(medio).upper()
+                offline_keywords = ['TV', 'RADIO', 'PRENSA', 'PERIÓDICO', 'CINE', 'ABIERTA', 'PAGA']
+                if any(kw in medio_up for kw in offline_keywords):
+                    return 'Offline'
+                return 'OOH'
+
+            # 3. Transformación al layout maestro
+            res_kav = pd.DataFrame()
+            
+            # Inversión = monto + Bonificación
+            monto = pd.to_numeric(df_kav.get('monto', 0), errors='coerce').fillna(0)
+            bonif = pd.to_numeric(df_kav.get('Bonificación Cliente', 0), errors='coerce').fillna(0)
+            inv_total = monto + bonif
+            
+            res_kav['Fuente'] = df_kav['medio'].apply(get_fuente_kavak)
+            res_kav['Año-mes'] = df_kav['yrmth'].apply(parse_yrmth)
+            res_kav['Año'] = res_kav['Año-mes'].dt.year
+            res_kav['Inversión (MXN)'] = inv_total
+            
+            # Aplicar multiplicador si es necesario (ej. 1.0 para Kavak o 1.3 si es F30)
+            res_kav['Inversión F30'] = inv_total * 1.0 
+            
+            res_kav['#Grupo'] = "KAVAK"
+            res_kav['modelo'] = df_kav.get('Modelos', 'INSTITUCIONAL').str.upper()
+            
+            # Categoría basada en columna OBJETIVO
+            res_kav['Categoría'] = df_kav.get('OBJETIVO', 'INSTITUCIONAL').str.upper()
+            res_kav['medio'] = df_kav['medio']
+            res_kav['Producto'] = res_kav['modelo']
+            
+            # Filtrar filas sin inversión
+            final_kav = res_kav[res_kav['Inversión (MXN)'] > 0].copy()
+            
+            if not final_kav.empty:
+                final_df = final_kav # Para que el botón de descarga lo detecte
+                st.success(f"✅ Kavak procesado: {len(final_kav)} registros encontrados.")
+                st.dataframe(final_kav.head())
+            else:
+                st.warning("No se encontraron registros con inversión mayor a $0.")
+                
+        except Exception as e:
+            st.error(f"Error al procesar Kavak: {e}")
 
 # --- BLOQUE INDUSTRIA (HR) ---
 elif marca_seleccionada == "INDUSTRIA (HR)":

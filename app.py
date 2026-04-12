@@ -325,11 +325,11 @@ elif marca_seleccionada == "Dashboard Global":
                     v = str(valor).upper().strip()
             
                    # Solo unifica si es exactamente Nissan o sus variantes de país
-                    if v in ["NISSAN", "NISSAN MEXICO"]:
+                    if v in ["NISSAN", "NISSAN MEXICANA"]:
                         return "NISSAN"
                     
                     # Solo unifica si es exactamente Volkswagen o sus variantes de país
-                    if v in ["VOLKSWAGEN", "VOLKSWAGEN MEXICO"]:
+                    if v in ["VOLKSWAGEN", "VOLKSWAGEN DE MEXICO"]:
                         return "VOLKSWAGEN"
                     
                     # Unificación de GWM

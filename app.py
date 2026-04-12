@@ -141,7 +141,7 @@ with st.sidebar:
     st.header("Configuración")
     marca_seleccionada = st.selectbox(
         "¿Qué marca vas a procesar hoy?",
-        ["GWM", "JAC", "KAVAK", "INDUSTRIA (HR)", "ADMETRICKS", "OOH"]
+        ["GWM", "JAC", "KAVAK", "INDUSTRIA (HR)", "ADMETRICKS", "OOH", "Dashboard Global"]
     )
     st.divider()
     st.info("El archivo resultante tendrá el formato de 'automotriz.xlsx'")
@@ -279,19 +279,152 @@ elif marca_seleccionada == "ADMETRICKS":
 
 # --- BLOQUE OOH ---
 elif marca_seleccionada == "OOH":
-    st.subheader("🏢 Panel OOH")
-    f_ooh = st.file_uploader("Subir OOH", type=['xlsx', 'csv'])
-    if f_ooh and st.button("Procesar OOH"):
-        df_ooh = pd.read_excel(f_ooh, skiprows=1) if not f_ooh.name.endswith('.csv') else pd.read_csv(f_ooh)
-        res_ooh = pd.DataFrame()
-        res_ooh['#Grupo'] = df_ooh['Marca'].str.upper()
-        inv_raw = pd.to_numeric(df_ooh.filter(like='Costo').iloc[:,0], errors='coerce').fillna(0)
-        res_ooh['Inversión (MXN)'] = inv_raw
-        res_ooh['Inversión F30'] = inv_raw * 1.3
-        res_ooh['Fuente'] = 'OOH'; res_ooh['Año-mes'] = pd.Timestamp.now().replace(day=1)
-        final_df = res_ooh[res_ooh['Inversión (MXN)'] > 0].copy()
-        st.success("✅ OOH Procesado.")
+    st.subheader("🏢 Panel OOH (Publicidad Exterior)")
+    
+    # --- NUEVA SECCIÓN DE CONFIGURACIÓN DE FACTORES ---
+    with st.expander("⚙️ Configurar Multiplicadores OOH", expanded=True):
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            factor_primario = st.number_input("Multiplicador Inicial (Ej. x2)", value=2.0, step=0.1)
+        with col_f2:
+            factor_f30 = st.number_input("Factor F30 (Ej. x1.3)", value=1.3, step=0.1)
+    
+    st.info("Sube los reportes de OOH. El sistema aplicará: (Costo * Factor Inicial) * Factor F30")
 
+    f_ooh = st.file_uploader("Subir archivo OOH", type=['xlsx', 'csv'], key="ooh_uploader")
+
+    if f_ooh and st.button("Procesar OOH"):
+        try:
+            # 1. Leer archivo
+            if f_ooh.name.endswith('.csv'):
+                df_ooh = pd.read_csv(f_ooh)
+            else:
+                df_raw = pd.read_excel(f_ooh, header=None)
+                primer_celda = str(df_raw.iloc[0, 0])
+                if "Filtros aplicados" in primer_celda:
+                    df_ooh = pd.read_excel(f_ooh, skiprows=2)
+                else:
+                    df_ooh = pd.read_excel(f_ooh, skiprows=1)
+
+            df_ooh.columns = [str(c).strip() for c in df_ooh.columns]
+
+            # 2. Transformación
+            res_ooh = pd.DataFrame()
+            res_ooh['#Grupo'] = df_ooh['Marca'].str.upper()
+            res_ooh['Fuente'] = 'OOH'
+            
+            # Fechas
+            if 'Año-Mes' in df_ooh.columns:
+                res_ooh['Año-mes'] = pd.to_datetime(df_ooh['Año-Mes'], errors='coerce')
+            elif 'Mes' in df_ooh.columns:
+                res_ooh['Año-mes'] = df_ooh['Mes'].apply(lambda x: pd.to_datetime(f"2026-{x}-01", errors='coerce'))
+            else:
+                res_ooh['Año-mes'] = pd.Timestamp.now().replace(day=1)
+            res_ooh['Año'] = res_ooh['Año-mes'].dt.year
+
+            # --- LÓGICA DE INVERSIÓN SOLICITADA ---
+            costo_col = next((c for c in df_ooh.columns if 'COSTO' in c.upper() or 'SUMA' in c.upper()), None)
+            if costo_col:
+                inv_raw = pd.to_numeric(df_ooh[costo_col], errors='coerce').fillna(0)
+                
+                # Primero multiplicamos por el factor primario (x2)
+                inversion_base = inv_raw * factor_primario
+                res_ooh['Inversión (MXN)'] = inversion_base
+                
+                # Luego aplicamos el factor F30 (x1.3) sobre el resultado anterior
+                res_ooh['Inversión F30'] = inversion_base * factor_f30
+            
+            # Otros campos
+            res_ooh['modelo'] = df_ooh.get('ProductoTag', 'INSTITUCIONAL').str.upper()
+            res_ooh['Producto'] = res_ooh['modelo']
+            res_ooh['medio'] = df_ooh.get('TipoPublicidad', 'OOH GENÉRICO')
+            res_ooh['Categoría'] = 'OOH'
+
+            final_df = res_ooh[res_ooh['Inversión (MXN)'] > 0].copy()
+            final_df = final_df[~final_df['#Grupo'].str.contains("TOTAL", na=False)]
+
+            if not final_df.empty:
+                st.success(f"✅ OOH procesado con éxito aplicando factores x{factor_primario} y x{factor_f30}")
+            else:
+                st.warning("No se encontraron datos válidos.")
+
+        except Exception as e:
+            st.error(f"Error al procesar OOH: {e}")
+            
+        
+# --- BLOQUE DASHBOARD GLOBAL ---
+elif marca_seleccionada == "Dashboard Global":
+    st.title("📊 Análisis de Inversión Histórica")
+    st.info("Sube tu archivo maestro (CSV o Excel) para analizar periodos específicos.")
+
+    f_master = st.file_uploader("Subir Archivo Consolidado", type=['xlsx', 'csv'], key="master_dash")
+
+    if f_master:
+        # Leer archivo
+        if f_master.name.endswith('.csv'):
+            df_dash = pd.read_csv(f_master)
+        else:
+            df_dash = pd.read_excel(f_master)
+
+        # Convertir fecha para poder filtrar
+        df_dash['Año-mes'] = pd.to_datetime(df_dash['Año-mes'])
+        
+        # --- FILTROS EN COLUMNAS ---
+        st.subheader("⚙️ Filtros de visualización")
+        col_f1, col_f2 = st.columns(2)
+        
+        with col_f1:
+            # Selector de Años (Detecta automáticamente qué años hay en el archivo)
+            anios_disponibles = sorted(df_dash['Año-mes'].dt.year.unique())
+            anios_sel = st.multiselect("Selecciona Año(s)", anios_disponibles, default=anios_disponibles)
+        
+        with col_f2:
+            # Selector de Fuentes
+            fuentes_disponibles = df_dash['Fuente'].unique()
+            fuentes_sel = st.multiselect("Selecciona Fuente(s)", fuentes_disponibles, default=fuentes_disponibles)
+
+        # Aplicar Filtros
+        mask = (df_dash['Año-mes'].dt.year.isin(anios_sel)) & (df_dash['Fuente'].isin(fuentes_sel))
+        df_filtered = df_dash[mask]
+
+        if not df_filtered.empty:
+            # --- MÉTRICAS ---
+            total_inv = df_filtered['Inversión (MXN)'].sum()
+            c1, c2 = st.columns(2)
+            c1.metric("Inversión en Periodo Seleccionado", f"${total_inv / 1_000_000:.2f}M")
+            c2.metric("Registros", f"{len(df_filtered):,}")
+
+            # --- GRÁFICA DE BARRAS POR FUENTE ---
+            st.write("### Inversión por Fuente")
+            import altair as alt
+            
+            # Agrupamos por Fuente para la gráfica
+            chart_data = df_filtered.groupby('Fuente')['Inversión (MXN)'].sum().reset_index()
+            
+            chart = alt.Chart(chart_data).mark_bar().encode(
+                x=alt.X('Fuente:N', title="Fuente de Inversión", sort='-y'),
+                y=alt.Y('Inversión (MXN):Q', title="Total ($)"),
+                color=alt.Color('Fuente:N', legend=None),
+                tooltip=[alt.Tooltip('Fuente'), alt.Tooltip('Inversión (MXN)', format="$,.2f")]
+            ).properties(height=350)
+            
+            st.altair_chart(chart, use_container_width=True)
+
+            # --- TABLA RESUMEN POR MEDIO ---
+            st.write("### Desglose Detallado por Medio")
+            # Agrupamos por Fuente y Medio para la tabla que pediste
+            tabla_resumen = df_filtered.groupby(['Fuente', 'medio'])['Inversión (MXN)'].sum().reset_index()
+            
+            # Ordenar de mayor a menor inversión
+            tabla_resumen = tabla_resumen.sort_values(by='Inversión (MXN)', ascending=False)
+
+            st.dataframe(
+                tabla_resumen.style.format({"Inversión (MXN)": "${:,.2f}"}),
+                use_container_width=True
+            )
+        else:
+            st.warning("No hay datos para los filtros seleccionados.")
+            
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS (FINAL DEL SCRIPT)
 # ─────────────────────────────────────────────────────────────────────────────

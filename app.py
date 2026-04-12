@@ -356,12 +356,12 @@ elif marca_seleccionada == "OOH":
 
 elif marca_seleccionada == "Dashboard Global":
     st.title("📊 Dashboard Estratégico 2026")
-    st.info("💡 Este panel acepta archivos originales de Admetricks Y archivos exportados (.csv) de esta aplicación.")
+    st.info("💡 Este panel agrupa las marcas según tus capturas de pantalla y guarda memoria de los meses.")
 
     if 'dg_memoria_historica' not in st.session_state:
         st.session_state.dg_memoria_historica = pd.DataFrame()
 
-  # --- LISTAS FINALES BASADAS EN TUS 4 FOTOS ---
+    # --- LISTAS FINALES BASADAS EN TUS 4 FOTOS ---
     GRUPOS_VISTAS = {
         "GRUPO GWM": [
             "NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", 
@@ -386,7 +386,9 @@ elif marca_seleccionada == "Dashboard Global":
             "JETOUR", "CHANGAN", "JAC", "MOTORNATION", "BAIC"
         ]
     }
-    dg_todas_foco = [m for sub in DG_GRUPOS.values() for m in sub]
+    
+    # CORRECCIÓN AQUÍ: Usamos el nombre correcto GRUPOS_VISTAS
+    dg_todas_foco = list(set([m for sub in GRUPOS_VISTAS.values() for m in sub]))
 
     dg_archivo = st.file_uploader("Subir Archivo", type=['xlsx', 'csv'], key="dg_hybrid_v4")
 
@@ -395,7 +397,6 @@ elif marca_seleccionada == "Dashboard Global":
         if dg_archivo.name.endswith('.csv'):
             dg_df_raw = pd.read_csv(dg_archivo)
         else:
-            # Para archivos originales (Excel), intentamos detectar el salto de línea
             df_check = pd.read_excel(dg_archivo, nrows=5)
             skip = 3 if any(df_check.iloc[:,0].astype(str).str.contains("Fuente", na=False)) else 0
             dg_df_raw = pd.read_excel(dg_archivo, skiprows=skip)
@@ -403,73 +404,72 @@ elif marca_seleccionada == "Dashboard Global":
         dg_df_raw.columns = [str(c).strip() for c in dg_df_raw.columns]
 
         # --- LÓGICA DE DETECCIÓN DE FORMATO ---
-        # Caso A: Es un layout exportado (tiene '#Grupo' e 'Inversión (MXN)')
         if '#Grupo' in dg_df_raw.columns and 'Inversión (MXN)' in dg_df_raw.columns:
             st.write("📂 Detectado: Formato Layout App")
             dg_temp = dg_df_raw.copy()
-            dg_temp['Marca_Final'] = dg_temp['#Grupo']
+            dg_temp['Marca_Original'] = dg_temp['#Grupo']
             dg_temp['Periodo'] = dg_temp['Año-mes']
             dg_temp['Monto'] = pd.to_numeric(dg_temp['Inversión (MXN)'], errors='coerce').fillna(0)
             dg_temp['Medio_Final'] = dg_temp['Fuente'].fillna('OTROS')
-
-        # Caso B: Es un original de Admetricks/TableBuilder
         else:
             dg_col_marca = next((c for c in dg_df_raw.columns if c.lower() in ['brand', 'marca']), None)
             dg_cols_2026 = [c for c in dg_df_raw.columns if '26' in c]
 
             if dg_col_marca and dg_cols_2026:
                 st.write("📂 Detectado: Reporte Original Admetricks")
-                # Limpiar filas vacías o totales
                 dg_df_raw = dg_df_raw[dg_df_raw[dg_col_marca].notna()]
                 dg_df_raw = dg_df_raw[~dg_df_raw[dg_col_marca].str.contains('Total|Share', case=False, na=False)]
                 
-                # Transformar a vertical
                 dg_temp = dg_df_raw.melt(id_vars=[dg_col_marca], value_vars=dg_cols_2026, var_name='Periodo', value_name='Monto')
-                dg_temp['Marca_Final'] = dg_temp[dg_col_marca]
+                dg_temp['Marca_Original'] = dg_temp[dg_col_marca]
                 dg_temp['Monto'] = pd.to_numeric(dg_temp['Monto'], errors='coerce').fillna(0)
                 
-                # Categorizar Medios
                 def dg_cat(x):
                     v = str(x).upper()
                     if any(k in v for k in ['BILLBOARD', 'BUS', 'OOH', 'VALLA', 'EXTERIOR']): return 'OOH'
                     if any(k in v for k in ['DIGITAL', 'SOCIAL', 'ONLINE', 'FACEBOOK']): return 'DIGITAL'
                     return 'OTROS'
-                dg_temp['Medio_Final'] = dg_temp['Marca_Final'].apply(dg_cat)
+                dg_temp['Medio_Final'] = dg_temp['Marca_Original'].apply(dg_cat)
             else:
-                st.error("❌ El archivo no parece ser ni un Layout ni un Reporte de Admetricks válido.")
+                st.error("❌ El archivo no es válido.")
                 dg_temp = pd.DataFrame()
 
         if not dg_temp.empty:
-            # Estandarizar columnas para la memoria
+            # LIMPIEZA PARA QUE COINCIDA CON TUS LISTAS
+            def asignar_marca_limpia(txt):
+                t = str(txt).upper()
+                for m in dg_todas_foco:
+                    if m in t: return m
+                return t
+            
+            dg_temp['Marca_Final'] = dg_temp['Marca_Original'].apply(asignar_marca_limpia)
+            
+            # Guardar en memoria
             dg_final_to_save = dg_temp[['Marca_Final', 'Periodo', 'Monto', 'Medio_Final']].copy()
             st.session_state.dg_memoria_historica = pd.concat([st.session_state.dg_memoria_historica, dg_final_to_save]).drop_duplicates()
             st.success("✅ Datos sincronizados.")
 
-    # --- VISUALIZACIÓN ---
+    # --- VISUALIZACIÓN POR GRUPOS (TUS FOTOS) ---
     if not st.session_state.dg_memoria_historica.empty:
         df_display = st.session_state.dg_memoria_historica.copy()
-        t1, t2 = st.tabs(["🎯 Marcas Foco", "🌐 Mercado Total"])
+        
+        tab_foco, tab_total = st.tabs(["🎯 Grupos Estratégicos", "🌐 Mercado Total"])
 
-        with t1:
-            df_f = df_display[df_display['Marca_Final'].str.upper().isin(dg_todas_foco)]
-            if not df_f.empty:
-                st.write("### Matriz: Marca vs Periodo")
-                piv_f = df_f.pivot_table(index='Marca_Final', columns='Periodo', values='Monto', aggfunc='sum', fill_value=0)
-                st.dataframe(piv_f.style.format("${:,.2f}"), use_container_width=True)
+        with tab_foco:
+            for nombre_grupo, lista_marcas in GRUPOS_VISTAS.items():
+                with st.expander(f"📌 {nombre_grupo}", expanded=True):
+                    # Filtrar solo marcas de este grupo
+                    df_grupo = df_display[df_display['Marca_Final'].isin(lista_marcas)]
+                    
+                    if not df_grupo.empty:
+                        piv_g = df_grupo.pivot_table(index='Marca_Final', columns='Periodo', values='Monto', aggfunc='sum', fill_value=0)
+                        # Reordenar según tu lista
+                        piv_g = piv_g.reindex(lista_marcas).dropna(how='all')
+                        st.dataframe(piv_g.style.format("${:,.2f}"), use_container_width=True)
+                    else:
+                        st.write("No hay datos cargados para este grupo.")
 
-                import altair as alt
-                st.write("### Composición Mensual Apilada")
-                dg_chart = alt.Chart(df_f).mark_bar().encode(
-                    x=alt.X('Periodo:O', sort='ascending'),
-                    y=alt.Y('sum(Monto):Q', title="Total Inversión"),
-                    color=alt.Color('Medio_Final:N', title="Medio"),
-                    tooltip=['Marca_Final', 'Periodo', alt.Tooltip('sum(Monto)', format="$,.2f")]
-                ).properties(height=350)
-                st.altair_chart(dg_chart, use_container_width=True)
-            else:
-                st.warning("Sube un archivo que contenga GWM, JAC, Kavak o Baic.")
-
-        with t2:
+        with tab_total:
             st.write("### Top Industria")
             piv_gen = df_display.pivot_table(index='Marca_Final', columns='Periodo', values='Monto', aggfunc='sum', fill_value=0)
             piv_gen['Total'] = piv_gen.sum(axis=1)

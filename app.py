@@ -148,6 +148,14 @@ with st.sidebar:
 
 final_df = pd.DataFrame()
 
+def format_big_numbers(number):
+    if number >= 1_000_000:
+        return f"${number / 1_000_000:.1f}M"
+    elif number >= 1_000:
+        return f"${number / 1_000:.1f}K"
+    else:
+        return f"${number:,.2f}"
+
 # --- BLOQUE GWM ---
 if marca_seleccionada == "GWM":
     st.subheader("📍 Panel GWM")

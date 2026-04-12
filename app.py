@@ -356,12 +356,12 @@ elif marca_seleccionada == "OOH":
 
 elif marca_seleccionada == "Dashboard Global":
     st.title("📊 Dashboard Estratégico 2026")
-    st.info("💡 Gráficas limpias por categoría y tablas con formato de moneda.")
+    st.info("💡 Control de duplicados activo: Si subes el mismo mes dos veces, el sistema actualizará los datos en lugar de sumarlos.")
 
     if 'dg_memoria_historica' not in st.session_state:
         st.session_state.dg_memoria_historica = pd.DataFrame()
 
-    # --- LISTAS MAESTRAS ---
+    # --- LISTAS MAESTRAS SEGÚN TUS FOTOS ---
     GRUPOS_VISTAS = {
         "GWM": ["NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", "KIA", "GWM", "GEELY", "CHIREY OMODA", "MG", "GAC", "TOYOTA", "CHANGAN", "EXEED"],
         "JAC": ["BYD", "NISSAN", "RAM", "CHEVROLET", "VOLKSWAGEN", "KIA", "HYUNDAI", "GEELY", "CHIREY", "RENAULT", "HONDA", "FORD", "MITSUBISHI", "MG", "TOYOTA", "GWM MOTORS", "PEUGEOT", "GAC", "SUZUKI", "CHANGAN", "JAC", "JAC INDUSTRIA", "SEAT", "MAZDA", "FOTON", "JETOUR"],
@@ -371,9 +371,10 @@ elif marca_seleccionada == "Dashboard Global":
     
     dg_todas_foco = list(set([m for sub in GRUPOS_VISTAS.values() for m in sub]))
 
-    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_v16_final")
+    dg_archivo = st.file_uploader("Subir Reporte Mensual (Excel o CSV)", type=['xlsx', 'csv'], key="dg_v17_final")
 
     if dg_archivo:
+        # 1. Lectura del archivo
         if dg_archivo.name.endswith('.csv'):
             dg_df_raw = pd.read_csv(dg_archivo)
         else:
@@ -383,6 +384,7 @@ elif marca_seleccionada == "Dashboard Global":
         
         dg_df_raw.columns = [str(c).strip() for c in dg_df_raw.columns]
 
+        # 2. Normalización de Columnas
         if '#Grupo' in dg_df_raw.columns:
             dg_temp = dg_df_raw.copy()
             dg_temp['Marca_Original'] = dg_temp['#Grupo']
@@ -401,6 +403,7 @@ elif marca_seleccionada == "Dashboard Global":
                 dg_temp = pd.DataFrame()
 
         if not dg_temp.empty:
+            # Categorización OOH / OFFLINE / ONLINE
             def dg_cat(x):
                 v = str(x).upper()
                 if any(k in v for k in ['BILLBOARD', 'BUS', 'OOH', 'VALLA', 'EXTERIOR']): return 'OOH'
@@ -418,10 +421,21 @@ elif marca_seleccionada == "Dashboard Global":
             
             dg_temp['Marca_Final'] = dg_temp['Marca_Original'].apply(asignar_marca_limpia)
             dg_final_to_save = dg_temp[['Marca_Final', 'Periodo', 'Monto', 'Medio_Final']].copy()
-            st.session_state.dg_memoria_historica = pd.concat([st.session_state.dg_memoria_historica, dg_final_to_save]).drop_duplicates()
-            st.success("✅ Datos sincronizados correctamente.")
+            
+            # --- LÓGICA ANTI-DUPLICADOS ---
+            # Si el archivo que subes tiene meses que ya están en memoria, borramos los viejos para no sumar doble
+            periodos_nuevos = dg_final_to_save['Periodo'].unique()
+            df_historial = st.session_state.dg_memoria_historica
+            
+            if not df_historial.empty:
+                # Quitamos del historial los periodos que estamos subiendo ahorita
+                df_historial = df_historial[~df_historial['Periodo'].isin(periodos_nuevos)]
+            
+            # Guardamos la unión limpia
+            st.session_state.dg_memoria_historica = pd.concat([df_historial, dg_final_to_save]).drop_duplicates()
+            st.success(f"✅ Datos actualizados para los periodos: {', '.join(periodos_nuevos)}")
 
-    # --- DESPLIEGUE POR TABS ---
+    # --- VISUALIZACIÓN ---
     if not st.session_state.dg_memoria_historica.empty:
         df_display = st.session_state.dg_memoria_historica.copy()
         tabs = st.tabs(list(GRUPOS_VISTAS.keys()) + ["MERCADO TOTAL"])
@@ -433,36 +447,22 @@ elif marca_seleccionada == "Dashboard Global":
                 df_grupo = df_display[df_display['Marca_Final'].isin(lista_marcas)]
                 
                 if not df_grupo.empty:
-                    # 1. TABLA CON FORMATO DE DINERO
-                    st.write(f"### Inversión Detallada por Marca")
+                    st.write(f"### Inversión por Marca - {nombre_grupo}")
                     piv_g = df_grupo.pivot_table(index='Marca_Final', columns='Periodo', values='Monto', aggfunc='sum', fill_value=0)
                     piv_g = piv_g.reindex(lista_marcas).dropna(how='all')
-                    
-                    # Formato con comas y signo de pesos
                     st.dataframe(piv_g.style.format("${:,.2f}"), use_container_width=True)
 
-                    # 2. GRÁFICA APILADA POR CATEGORÍA
-                    st.write(f"### Mix de Inversión Total: {nombre_grupo}")
-                    
+                    st.write("### Mix de Inversión por Categoría")
                     chart = alt.Chart(df_grupo).mark_bar().encode(
-                        x=alt.X('Periodo:O', title="Periodo (Mes)"),
-                        y=alt.Y('sum(Monto):Q', title="Inversión Acumulada (MXN)"),
+                        x=alt.X('Periodo:O', title="Mes"),
+                        y=alt.Y('sum(Monto):Q', title="Inversión Total"),
                         color=alt.Color('Medio_Final:N', 
-                                       scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], 
-                                                     range=['#1f77b4', '#ff7f0e', '#2ca02c']),
+                                       scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], range=['#1f77b4', '#ff7f0e', '#2ca02c']),
                                        title="Categoría"),
-                        tooltip=[
-                            alt.Tooltip('Periodo:O'),
-                            alt.Tooltip('Medio_Final:N'),
-                            alt.Tooltip('sum(Monto):Q', format='$,.2f', title='Inversión')
-                        ]
+                        tooltip=[alt.Tooltip('Periodo'), alt.Tooltip('Medio_Final'), alt.Tooltip('sum(Monto)', format='$,.2f')]
                     ).properties(height=400)
-
                     st.altair_chart(chart, use_container_width=True)
-                else:
-                    st.warning(f"No hay marcas detectadas para {nombre_grupo} en este archivo.")
 
-        # Tab de Mercado Total
         with tabs[-1]:
             st.subheader("Ranking General de Industria")
             piv_gen = df_display.pivot_table(index='Marca_Final', columns='Periodo', values='Monto', aggfunc='sum', fill_value=0)

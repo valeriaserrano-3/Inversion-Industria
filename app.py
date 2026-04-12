@@ -292,44 +292,6 @@ elif marca_seleccionada == "OOH":
         final_df = res_ooh[res_ooh['Inversión (MXN)'] > 0].copy()
         st.success("✅ OOH Procesado.")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# RESULTADOS FINALES (ESTO VA AL FINAL DEL ARCHIVO, SIN INDENTACIÓN)
-# ─────────────────────────────────────────────────────────────────────────────
-if 'final_df' in locals() and not final_df.empty:
-    st.divider()
-    
-    # 1. Métricas con formato M
-    c1, c2, c3 = st.columns(3)
-    total_inv = final_df['Inversión (MXN)'].sum()
-    c1.metric("Total Filas", f"{len(final_df):,}")
-    c2.metric("Inversión Total", f"${total_inv / 1_000_000:.1f}M")
-    c3.metric("Medios", final_df['Fuente'].nunique())
-
-    # 2. Gráfica de Barras con formato de Dinero
-    import altair as alt
-    st.write("### Inversión por Marca/Grupo")
-    chart_data = final_df.groupby('#Grupo')['Inversión (MXN)'].sum().reset_index()
-    
-    chart = alt.Chart(chart_data).mark_bar().encode(
-        x=alt.X('#Grupo:N', title="Marca"),
-        y=alt.Y('Inversión (MXN):Q', title="Inversión ($)"),
-        tooltip=[alt.Tooltip('#Grupo'), alt.Tooltip('Inversión (MXN)', format="$,.2f")]
-    ).properties(height=400)
-    
-    st.altair_chart(chart, use_container_width=True)
-
-    # 3. Botón de descarga
-    csv = final_df.to_csv(index=False).encode('utf-8-sig')
-    st.download_button("⬇️ Descargar Layout Maestro (CSV)", csv, "layout_automotriz.csv", "text/csv", use_container_width=True)
-
-    # 4. Única tabla con formato $
-    st.write("### Vista Previa de Datos")
-    st.dataframe(
-        final_df.style.format({
-            "Inversión (MXN)": "${:,.2f}",
-            "Inversión F30": "${:,.2f}"
-        }), use_container_width=True
-    )
 # --- BLOQUE DASHBOARD GLOBAL CORREGIDO (GRÁFICA SIN DUPLICADOS) ---
 elif marca_seleccionada == "Dashboard Global":
     st.title("📊 Dashboard Estratégico 2026")

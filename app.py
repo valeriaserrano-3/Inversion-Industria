@@ -359,7 +359,7 @@ elif marca_seleccionada == "Dashboard Global":
 
                     # Changan: Unificar las marcas
                     if v in ["CHANGAN", "CHANGAN AUTO", "CHANGAN MEXICO"]:
-                        return "Changan"
+                        return "CHANGAN MEXICO"
 
                     return v
 

@@ -299,7 +299,7 @@ elif marca_seleccionada == "Dashboard Global":
     if 'dg_memoria_historica' not in st.session_state:
         st.session_state.dg_memoria_historica = pd.DataFrame()
 
-    # Listas de marcas por pestaña
+    # Listas de marcas por pestaña (BAIC incluido)
     GRUPOS_VISTAS = {
         "GWM": ["NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", "KIA", "GWM", "GEELY", "CHIREY OMODA", "MG", "GAC", "TOYOTA", "CHANGAN", "EXEED"],
         "JAC": ["BYD", "NISSAN", "RAM", "CHEVROLET", "VOLKSWAGEN", "KIA", "HYUNDAI", "GEELY", "CHIREY", "RENAULT", "HONDA", "FORD", "MITSUBISHI", "MG", "TOYOTA", "GWM MOTORS", "PEUGEOT", "GAC", "SUZUKI", "CHANGAN", "JAC", "JAC INDUSTRIA", "SEAT", "MAZDA", "FOTON", "JETOUR"],
@@ -307,10 +307,9 @@ elif marca_seleccionada == "Dashboard Global":
         "BAIC": ["MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", "JETOUR", "CHANGAN", "JAC", "MOTORNATION", "BAIC"]
     }
     
-    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_fix_final")
+    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_final_v3")
 
     if dg_archivo:
-        # Procesamiento de archivo
         dg_df_raw = pd.read_csv(dg_archivo) if dg_archivo.name.endswith('.csv') else pd.read_excel(dg_archivo)
         dg_df_raw.columns = [str(c).strip() for c in dg_df_raw.columns]
 
@@ -322,7 +321,7 @@ elif marca_seleccionada == "Dashboard Global":
             dg_temp['Medio_Final'] = dg_temp['Fuente'].str.upper().fillna('ONLINE')
             
             st.session_state.dg_memoria_historica = dg_temp.dropna(subset=['Periodo'])
-            st.success("✅ Datos sincronizados.")
+            st.success("✅ Datos cargados correctamente.")
 
     if not st.session_state.dg_memoria_historica.empty:
         df_display = st.session_state.dg_memoria_historica.copy()
@@ -336,13 +335,13 @@ elif marca_seleccionada == "Dashboard Global":
                 df_g = df_display[df_display['Marca_Final'].isin(marcas_foco)]
                 
                 if not df_g.empty:
-                    # --- 1. TARJETAS DE MÉTRICAS REINTEGRADAS ---
+                    # 1. CÁLCULO DE TARJETAS (Cuadre de inversión)
                     t_total = df_g['Monto'].sum()
-                    t_on = df_g[df_g['Medio_Final'].str.contains('ONLINE|DIGITAL', na=False)]['Monto'].sum()
+                    t_on = df_g[df_g['Medio_Final'].str.contains('ONLINE|DIGITAL|ADMETRICKS', na=False)]['Monto'].sum()
                     t_off = df_g[df_g['Medio_Final'].str.contains('OFFLINE|TV|RADIO|PRENSA', na=False)]['Monto'].sum()
                     t_ooh = df_g[df_g['Medio_Final'].str.contains('OOH|EXTERIOR', na=False)]['Monto'].sum()
 
-                    st.markdown(f"### Resumen {nombre_grupo}")
+                    st.markdown(f"## Resumen Inversión - {nombre_grupo}")
                     c1, c2, c3, c4 = st.columns(4)
                     c1.metric("TOTAL GRUPO", f"${t_total:,.0f}")
                     c2.metric("ONLINE", f"${t_on:,.0f}")
@@ -350,27 +349,33 @@ elif marca_seleccionada == "Dashboard Global":
                     c4.metric("OOH", f"${t_ooh:,.0f}")
                     st.divider()
 
-                    # --- 2. GRÁFICO CON BARRA MÁS ANCHA ---
-                    # Agrupamos por mes y medio para evitar barras traslapadas
-                    df_plot = df_g.groupby([df_g['Periodo'].dt.strftime('%B %Y'), 'Medio_Final'])['Monto'].sum().reset_index()
+                    # 2. GRÁFICO DE BARRAS (Ancho corregido)
+                    df_plot = df_g.groupby([df_g['Periodo'].dt.strftime('%Y-%m'), 'Medio_Final'])['Monto'].sum().reset_index()
                     df_plot.columns = ['Mes', 'Medio_Final', 'Monto']
 
-                    chart = alt.Chart(df_plot).mark_bar(
-                        size=60  # <-- Esto hace la barra más gruesa
-                    ).encode(
-                        x=alt.X('Mes:N', title="Mes", sort=None),
+                    chart = alt.Chart(df_plot).mark_bar(size=50).encode(
+                        x=alt.X('Mes:N', title="Periodo"),
                         y=alt.Y('Monto:Q', title="Inversión ($)", axis=alt.Axis(format="$.2s")),
                         color=alt.Color('Medio_Final:N', 
                                        scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], 
                                                        range=['#2471A3', '#D35400', '#28B463'])),
                         tooltip=['Mes', 'Medio_Final', alt.Tooltip('Monto', format="$,.0f")]
-                    ).properties(height=500)
+                    ).properties(height=400)
 
                     st.altair_chart(chart, use_container_width=True)
-                else:
-                    st.warning(f"No hay datos para las marcas de {nombre_grupo} en este archivo.")
 
-    if st.sidebar.button("🗑️ Limpiar Datos Actuales"):
+                    # 3. TABLA DE DETALLE (La que se había borrado)
+                    st.write("### Detalle por Marca")
+                    df_tabla = df_g.groupby('Marca_Final')['Monto'].sum().reset_index()
+                    df_tabla = df_tabla.sort_values(by='Monto', ascending=False)
+                    st.dataframe(
+                        df_tabla.style.format({"Monto": "${:,.2f}"}),
+                        use_container_width=True
+                    )
+                else:
+                    st.info(f"No se encontraron datos para {nombre_grupo} en este archivo.")
+
+    if st.sidebar.button("🗑️ Limpiar Memoria"):
         st.session_state.dg_memoria_historica = pd.DataFrame()
         st.rerun()
 # ─────────────────────────────────────────────────────────────────────────────

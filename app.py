@@ -353,96 +353,108 @@ elif marca_seleccionada == "OOH":
             
         
 # --- BLOQUE DASHBOARD GLOBAL ---
+
 elif marca_seleccionada == "Dashboard Global":
     st.title("📊 Dashboard Estratégico 2026")
 
-    # 1. MEMORIA PARA NO DUPLICAR Y GUARDAR MESES ANTERIORES
+    # 1. MEMORIA DE SESIÓN
     if 'historico_master' not in st.session_state:
         st.session_state.historico_master = pd.DataFrame()
 
     # --- DICCIONARIO DE MARCAS (Según tus fotos) ---
     GRUPOS_FOCO = {
-        "GWM": ["GWM", "GWM MOTORS", "GREAT WALL", "HAVAL", "ORA", "POER", "TANK", "WEY"],
+        "GWM": ["GWM", "GWM MOTORS", "HAVAL", "TANK", "ORA", "POER", "WEY"],
         "JAC": ["JAC", "JAC MOTORS", "JAC INDUSTRIA"],
         "KAVAK": ["KAVAK"],
         "BAIC": ["BAIC", "JMC", "MOTORNATION"]
     }
-    todas_foco = [item for sublist in GRUPOS_FOCO.values() for item in sublist]
+    todas_foco = [m for sub in GRUPOS_FOCO.values() for m in sub]
 
-    f_master = st.file_uploader("Subir Reporte Mensual (Ene-26, Feb-26...)", type=['xlsx', 'csv'])
+    f_master = st.file_uploader("Subir Reporte (Ene-26, Feb-26...)", type=['xlsx', 'csv'])
 
     if f_master:
-        # Leer archivo saltando encabezados de reporte
-        df_raw = pd.read_excel(f_master, skiprows=3) if f_master.name.endswith('.xlsx') else pd.read_csv(f_master, skiprows=3)
+        # Detectar skiprows automáticamente para evitar el error de la captura
+        df_test = pd.read_excel(f_master, nrows=10) if f_master.name.endswith('.xlsx') else pd.read_csv(f_master, nrows=10)
+        
+        # Buscamos en qué fila está la palabra "Brand" o "Marca"
+        skip = 0
+        for i, row in df_test.iterrows():
+            if row.astype(str).str.contains('Brand|Marca', case=False).any():
+                skip = i
+                break
+        
+        # Leer el archivo con el skip correcto
+        df_raw = pd.read_excel(f_master, skiprows=skip) if f_master.name.endswith('.xlsx') else pd.read_csv(f_master, skiprows=skip)
         df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
-        # Identificar columnas de meses 2026
+        # Identificar columna de Marca y Meses 2026
+        col_marca = next((c for c in df_raw.columns if c.lower() in ['brand', 'marca']), None)
         cols_2026 = [c for c in df_raw.columns if '26' in c]
-        col_marca = 'Brand' if 'Brand' in df_raw.columns else 'Marca'
 
-        if cols_2026:
+        if col_marca and cols_2026:
+            # Limpiar datos: quitar filas de "Total" que vienen en el excel
+            df_raw = df_raw[df_raw[col_marca].notna()]
+            df_raw = df_raw[~df_raw[col_marca].str.contains('Total|Share', case=False, na=False)]
+
             # Transformar a formato largo
             df_melt = df_raw.melt(id_vars=[col_marca], value_vars=cols_2026, var_name='Mes', value_name='Inversión')
+            df_melt['Inversión'] = pd.to_numeric(df_melt['Inversión'], errors='coerce').fillna(0)
             
             # --- NORMALIZACIÓN DE MEDIOS ---
-            def limpiar_medios(row):
-                # Si la fila tiene un valor de inversión pero no tiene nombre de medio 
-                # (en el TableBuilder el medio suele venir abajo de la marca o en columna aparte)
-                # Aquí ajustamos según la estructura de tus archivos:
-                m = str(row[col_marca]).upper()
-                if any(x in m for x in ['BILLBOARD', 'BUS', 'OOH', 'VALLA', 'MUPI']): return 'OOH'
-                if any(x in m for x in ['DIGITAL', 'SOCIAL', 'FACEBOOK', 'GOOGLE', 'ONLINE']): return 'DIGITAL'
+            def categorizar_especifico(nombre):
+                n = str(nombre).upper()
+                if any(x in n for x in ['BILLBOARD', 'BUS', 'OOH', 'VALLA', 'MUPI', 'EXTERIOR']): return 'OOH'
+                if any(x in n for x in ['DIGITAL', 'SOCIAL', 'FACEBOOK', 'GOOGLE', 'ONLINE', 'WEB']): return 'DIGITAL'
+                if 'RADIO' in n: return 'RADIO'
+                if 'TV' in n: return 'TV'
                 return 'OTROS'
 
-            df_melt['Categoria_Medio'] = df_melt[col_marca].apply(limpiar_medios)
+            # Nota: Si el archivo no trae columna de medio, usamos el nombre de la marca/fila 
+            # para intentar rescatar el medio (común en reportes Admetricks)
+            df_melt['Categoria_Medio'] = df_melt[col_marca].apply(categorizar_especifico)
             
-            # Unir a la memoria y eliminar duplicados exactos
+            # Unir a memoria
             st.session_state.historico_master = pd.concat([st.session_state.historico_master, df_melt]).drop_duplicates()
-            st.success("✅ Datos actualizados. Se conservan meses previos en memoria.")
+            st.success(f"✅ Se procesaron {len(cols_2026)} meses correctamente.")
+        else:
+            st.error("❌ No se encontró la columna 'Brand/Marca' o meses de '2026'. Revisa el archivo.")
 
     # --- VISUALIZACIÓN ---
     if not st.session_state.historico_master.empty:
         df_view = st.session_state.historico_master.copy()
-        
-        # Crear los Tabs que pediste
-        tab1, tab2 = st.tabs(["🎯 Marcas Foco (GWM/JAC/KAVAK/BAIC)", "🌐 Mercado Total"])
+        tab1, tab2 = st.tabs(["🎯 Marcas Foco", "🌐 Mercado Total"])
 
         with tab1:
-            # Filtrar solo tus marcas
-            df_foco = df_view[df_view[col_marca].str.upper().isin(todas_foco)].copy()
+            # Filtro por tus marcas
+            df_foco = df_view[df_view[col_marca].str.upper().isin(todas_foco)]
             
-            # Gráfica Apilada
-            import altair as alt
-            st.write("### Evolución Mensual Marcas Foco")
-            chart = alt.Chart(df_foco).mark_bar().encode(
-                x=alt.X('Mes:O', sort=['Amount Jan-26', 'Amount Feb-26', 'Amount Mar-26']),
-                y=alt.Y('sum(Inversión):Q', title="Inversión ($)"),
-                color=alt.Color('Categoria_Medio:N', title="Medio"),
-                tooltip=['Mes', 'Categoria_Medio', alt.Tooltip('sum(Inversión)', format="$,.2f")]
-            ).properties(height=400)
-            st.altair_chart(chart, use_container_width=True)
+            if not df_foco.empty:
+                import altair as alt
+                st.write("### Evolución Mensual (Apilada)")
+                chart = alt.Chart(df_foco).mark_bar().encode(
+                    x=alt.X('Mes:O', sort='ascending'),
+                    y=alt.Y('sum(Inversión):Q', title="Inversión ($)"),
+                    color=alt.Color('Categoria_Medio:N', title="Medio"),
+                    tooltip=['Mes', 'Categoria_Medio', alt.Tooltip('sum(Inversión)', format="$,.2f")]
+                ).properties(height=400)
+                st.altair_chart(chart, use_container_width=True)
 
-            # Matriz Marcas vs Meses (2026)
-            st.write("### Matriz Detallada")
-            pivot_foco = df_foco.pivot_table(index=col_marca, columns='Mes', values='Inversión', aggfunc='sum', fill_value=0)
-            st.dataframe(pivot_foco.style.format("${:,.2f}"), use_container_width=True)
+                st.write("### Matriz Marcas vs Meses")
+                pivot_foco = df_foco.pivot_table(index=col_marca, columns='Mes', values='Inversión', aggfunc='sum', fill_value=0)
+                st.dataframe(pivot_foco.style.format("${:,.2f}"), use_container_width=True)
+            else:
+                st.info("No se encontraron datos de GWM, JAC, KAVAK o BAIC en este archivo.")
 
         with tab2:
-            st.write("### Top 25 Marcas de la Industria")
-            # Tabla general para toda la industria
             pivot_gen = df_view.pivot_table(index=col_marca, columns='Mes', values='Inversión', aggfunc='sum', fill_value=0)
             pivot_gen['Total'] = pivot_gen.sum(axis=1)
-            st.dataframe(pivot_gen.sort_values('Total', ascending=False).head(25).style.format("${:,.2f}"), use_container_width=True)
+            st.dataframe(pivot_gen.sort_values('Total', ascending=False).head(30).style.format("${:,.2f}"), use_container_width=True)
             
-    else:
-        st.warning("Aún no hay datos. Por favor sube un archivo de TableBuilder o Descarga.")
-
-    # Botón para resetear memoria si es necesario
-    if st.sidebar.button("🗑️ Limpiar Histórico (Reset)"):
+    # Botón de reset en el sidebar
+    if st.sidebar.button("🗑️ Limpiar Todo"):
         st.session_state.historico_master = pd.DataFrame()
         st.rerun()
-        
-            
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS (FINAL DEL SCRIPT)
 # ─────────────────────────────────────────────────────────────────────────────

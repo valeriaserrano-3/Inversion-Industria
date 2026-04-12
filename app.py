@@ -1,228 +1,173 @@
+#!/usr/bin/env python3
 """
-Inversión Automotriz – App Unificada
-Streamlit app para procesar archivos de inversión (GWM, JAC, KAVAK, Industria)
-y generar el layout unificado para automotriz.xlsx.
+BRAND Investment Data Processor (JAC / KAVAK)
+---------------------------------------------
+Procesa archivos de Inversión Offline y Online, los consolida 
+y los agrega al archivo maestro automotriz.xlsx.
 """
 
-import streamlit as st
 import pandas as pd
 import numpy as np
-import io
-import calendar
-import warnings
-from datetime import datetime
 from pathlib import Path
+import shutil
+import warnings
+import calendar
+from datetime import datetime
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings('ignore')
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CONFIGURACIÓN DE PÁGINA
-# ─────────────────────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="Inversión Automotriz",
-    page_icon="🚗",
-    layout="wide",
-)
+# ─────────────────────────────────────────────
+# CONFIGURACIÓN DE RUTAS
+# ─────────────────────────────────────────────
+# El script detecta la marca por el nombre de la carpeta donde está guardado
+FOLDER_PATH       = Path(__file__).parent
+BRAND_NAME        = FOLDER_PATH.name.upper() # Ej: "JAC" o "KAVAK"
+AUTOMOTRIZ_PATH   = FOLDER_PATH.parent.parent / "Data" / "automotriz.xlsx"
+MODIFICADO_FOLDER = FOLDER_PATH / "Modificado"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CONTRASEÑA
-# ─────────────────────────────────────────────────────────────────────────────
-def check_password() -> bool:
-    if st.session_state.get("authenticated"):
-        return True
+# Mapeo de nombres para el Excel maestro
+BRAND_GROUPS = {
+    "JAC": "JAC INDUSTRIA",
+    "KAVAK": "KAVAK"
+}
+CURRENT_GROUP = BRAND_GROUPS.get(BRAND_NAME, BRAND_NAME)
 
-    st.markdown("""
-        <style>
-        .login-box { max-width: 380px; margin: 80px auto; padding: 40px; background: #fff; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,.1); text-align: center; }
-        </style>
-        <div class="login-box">
-          <h2>Inversión Automotriz</h2>
-          <p>Ingresa la contraseña para continuar</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    col = st.columns([1, 2, 1])[1]
-    with col:
-        pwd = st.text_input("Contraseña", type="password", label_visibility="collapsed")
-        if st.button("Entrar", use_container_width=True):
-            if pwd == "automotriz2026":
-                st.session_state["authenticated"] = True
-                st.rerun()
-            else:
-                st.error("Contraseña incorrecta.")
-    return False
-
-if not check_password():
-    st.stop()
-
-# ─────────────────────────────────────────────────────────────────────────────
-# HELPERS Y MULTIPLICADORES
-# ─────────────────────────────────────────────────────────────────────────────
-MULTIPLICADORES = {
-    "radio": 1.30,
-    "tele_abierta": 1.30,
-    "tele_paga": 1.30,
-    "online": 1.30,
-    "ooh_factor": 1.30
+# ─────────────────────────────────────────────
+# DICCIONARIOS DE CATEGORIZACIÓN
+# ─────────────────────────────────────────────
+CAT_MAP = {
+    'E 10X': 'SEDAN', 'E J7': 'SEDAN', 'J7': 'SEDAN',
+    'E SEI4 PRO': 'SUV', 'SEI 2': 'SUV', 'SEI 3 PRO': 'SUV', 'SEI 4 PRO': 'SUV', 'SEI 6 PRO': 'SUV', 'SEI 7 PRO': 'SUV',
+    'FRISON T6': 'PICK UP', 'FRISON T8': 'PICK UP', 'FRISON T9': 'PICK UP', 'E SUNRAY': 'COMERCIAL',
+    'AWARENESS': 'INSTITUCIONAL', 'CONSIDERACION': 'INSTITUCIONAL'
 }
 
-MESES_DICC = {
-    'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4, 'MAYO': 5, 'JUNIO': 6,
-    'JULIO': 7, 'AGOSTO': 8, 'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
-}
+# ─────────────────────────────────────────────
+# FUNCIONES DE PROCESAMIENTO
+# ─────────────────────────────────────────────
 
-def parse_yrmth(val):
-    """Convierte 'jan2025' o fechas a Timestamp."""
+def get_month_from_name(filename):
+    """Extrae mes y año del nombre del archivo (ej: 02.FEBRERO.2026)"""
+    meses = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
+    name_up = filename.upper()
+    for i, mes in enumerate(meses):
+        if mes in name_up:
+            # Busca un año de 4 dígitos
+            import re
+            year_match = re.search(r'20\d{2}', name_up)
+            year = int(year_match.group(0)) if year_match else datetime.now().year
+            return f"{calendar.month_name[i+1][:3].lower()}{year}"
+    return None
+
+def process_offline(file_path, months_to_proc):
+    if not file_path: return pd.DataFrame()
+    
+    df = pd.read_excel(file_path)
+    # Limpieza básica de columnas
+    df.columns = [c.strip() for c in df.columns]
+    
+    # Identificar columna de fecha/mes
+    # En Offline suele ser 'yrmth', en otros 'Mes'
+    date_col = 'yrmth' if 'yrmth' in df.columns else 'Mes'
+    if date_col not in df.columns:
+        return pd.DataFrame()
+
+    df = df[df[date_col].isin(months_to_proc)].copy()
+    
+    # Cálculo de Inversión
+    monto_col = 'monto' if 'monto' in df.columns else 'Inversión'
+    bonif_col = 'Bonificación Cliente'
+    if bonif_col not in df.columns: df[bonif_col] = 0
+    
+    df['Inversión (MXN)'] = df[monto_col] + df[bonif_col]
+    
+    # Mapeo al layout maestro
+    new_df = pd.DataFrame()
+    new_df['Fuente'] = df['medio'].apply(lambda x: 'OOH' if 'EXTERIOR' in str(x).upper() else 'Offline')
+    new_df['Año-mes'] = df[date_col]
+    new_df['Inversión (MXN)'] = df['Inversión (MXN)']
+    new_df['#Grupo'] = CURRENT_GROUP
+    new_df['modelo'] = df['Modelos'].str.upper() if 'Modelos' in df.columns else 'INSTITUCIONAL'
+    new_df['Categoría'] = new_df['modelo'].map(CAT_MAP).fillna('SUV')
+    
+    # Columnas espejo por requerimiento de Power BI
+    new_df['Inversión F30'] = new_df['Inversión (MXN)']
+    new_df['Inversión F30 s/bonif'] = new_df['Inversión (MXN)']
+    
+    return new_df
+
+def process_online(file_path, month_str):
+    if not file_path: return pd.DataFrame()
+    
     try:
-        if isinstance(val, datetime): return val
-        s = str(val).strip().lower()
-        # Caso jan2025
-        for i, m in enumerate(calendar.month_abbr):
-            if m and s.startswith(m.lower()):
-                return pd.Timestamp(year=int(s[3:]), month=i, day=1)
-        return pd.to_datetime(val)
+        df = pd.read_excel(file_path, sheet_name='TOTAL FINAL')
     except:
-        return pd.NaT
+        df = pd.read_excel(file_path, sheet_name=0) # Fallback a la primera hoja
 
-# ─────────────────────────────────────────────────────────────────────────────
-# LÓGICA DE PROCESAMIENTO POR LAYOUT
-# ─────────────────────────────────────────────────────────────────────────────
-
-def process_naming_convention(df, grupo_nombre):
-    """Procesador para GWM, JAC, KAVAK (Layout Naming Convention)"""
-    # Limpieza básica
-    df['monto'] = pd.to_numeric(df['monto'], errors='coerce').fillna(0)
-    df['Bonificación Cliente'] = pd.to_numeric(df['Bonificación Cliente'], errors='coerce').fillna(0)
-    df['Inversión (MXN)'] = df['monto'] + df['Bonificación Cliente']
+    # Filtrar basura y vacíos
+    df = df.dropna(subset=['Gasto'])
     
-    # Mapeo de columnas al layout final
-    res = pd.DataFrame()
-    res['Fuente'] = df['FUENTE'].apply(lambda x: 'OOH' if 'EXTERIOR' in str(x).upper() else 'Offline')
-    res['Año-mes'] = df['yrmth'].apply(parse_yrmth)
-    res['Año'] = res['Año-mes'].dt.year
-    res['Inversión (MXN)'] = df['Inversión (MXN)']
-    res['Inversión F30'] = df['Inversión (MXN)'] # Ajustar si lleva multiplicador
-    res['#Grupo'] = grupo_nombre
-    res['Categoría'] = df.get('OBJETIVO', 'Institucional')
-    res['Producto'] = df.get('Modelos', 'Varios')
-    res['medio'] = df['FUENTE']
-    res['modelo'] = df.get('Modelos', 'Varios')
-    return res
-
-def process_hr_ratings(df, medio_nombre):
-    """Procesador para HR Ratings (Industria)"""
-    # HR suele tener 42 columnas, aquí filtramos solo lo necesario
-    res = pd.DataFrame()
-    res['Fuente'] = 'Offline'
-    # HR suele tener columnas como 'MES' y 'ANIO' o 'FECHA'
-    date_col = next((c for c in df.columns if 'FECHA' in c.upper()), df.columns[0])
-    res['Año-mes'] = pd.to_datetime(df[date_col]).dt.to_period('M').dt.to_timestamp()
-    res['Año'] = res['Año-mes'].dt.year
+    new_df = pd.DataFrame()
+    new_df['Fuente'] = 'Online'
+    new_df['Año-mes'] = month_str
+    new_df['Inversión (MXN)'] = df['Gasto']
+    new_df['#Grupo'] = CURRENT_GROUP
+    new_df['modelo'] = df['Modelo'].str.upper()
+    new_df['Categoría'] = new_df['modelo'].map(CAT_MAP).fillna('SUV')
+    new_df['medio'] = df['Plataforma']
     
-    inv_col = next((c for c in df.columns if 'INVER' in c.upper() or 'TARIFA' in c.upper()), None)
-    res['Inversión (MXN)'] = pd.to_numeric(df[inv_col], errors='coerce').fillna(0)
-    res['Inversión F30'] = res['Inversión (MXN)'] * MULTIPLICADORES.get(medio_nombre.lower(), 1.0)
+    new_df['Inversión F30'] = new_df['Inversión (MXN)']
+    new_df['Inversión F30 s/bonif'] = new_df['Inversión (MXN)']
     
-    res['#Grupo'] = df.get('MARCA', 'INDUSTRIA')
-    res['Categoría'] = 'Automotriz'
-    res['Producto'] = df.get('MODELO', 'Varios')
-    res['medio'] = medio_nombre
-    res['modelo'] = df.get('MODELO', 'Varios')
-    return res
+    return new_df
 
-# ─────────────────────────────────────────────────────────────────────────────
-# INTERFAZ DE USUARIO (STREAMLIT)
-# ─────────────────────────────────────────────────────────────────────────────
-st.title("🚀 Procesador de Inversión Automotriz")
-st.markdown("Carga tus archivos según la marca para generar el consolidado.")
-
-# Menú lateral para elegir qué procesar
-with st.sidebar:
-    st.header("Configuración")
-    marca_seleccionada = st.selectbox(
-        "¿Qué marca vas a procesar hoy?",
-        ["GWM", "JAC", "KAVAK", "INDUSTRIA (HR)", "ADMETRICKS"]
-    )
-    st.divider()
-    st.info("El archivo resultante tendrá el formato de 'automotriz.xlsx'")
-
-final_df = pd.DataFrame()
-
-# --- BLOQUE GWM ---
-if marca_seleccionada == "GWM":
-    st.subheader("📍 Panel GWM")
-    col1, col2 = st.columns(2)
-    with col1:
-        f_off = st.file_uploader("Subir Naming Convention (Offline/OOH)", type=['xlsx'], key="gwm_off")
-    with col2:
-        f_on = st.file_uploader("Subir Resumen Digital (Online)", type=['xlsx'], key="gwm_on")
+# ─────────────────────────────────────────────
+# LÓGICA PRINCIPAL
+# ─────────────────────────────────────────────
+def main():
+    print(f"🚀 Iniciando proceso para: {CURRENT_GROUP}")
     
-    if st.button("Procesar GWM"):
-        dataframes = []
-        if f_off:
-            df = pd.read_excel(f_off)
-            dataframes.append(process_naming_convention(df, "GWM"))
-        if f_on:
-            # Lógica simple para el excel de online
-            df_on = pd.read_excel(f_on)
-            # (Aquí iría tu lógica de 'Investment' * 1.3)
-            st.success("Archivo Online detectado")
+    # 1. Identificar archivos en la carpeta
+    all_files = list(FOLDER_PATH.glob("*.xlsx"))
+    offline_file = next((f for f in all_files if "NAMING" in f.name.upper() or "NC" in f.name.upper()), None)
+    online_file = next((f for f in all_files if "ONLINE" in f.name.upper() or any(m in f.name.upper() for m in ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO"])), None)
+
+    # 2. Leer archivo maestro para evitar duplicados
+    df_main = pd.read_excel(AUTOMOTRIZ_PATH, sheet_name='Investment Raw data')
+    existing_months = df_main[df_main['#Grupo'] == CURRENT_GROUP]['Año-mes'].unique()
+
+    # 3. Determinar meses a procesar
+    # Para Offline: leemos el archivo y vemos qué meses NO están en el maestro
+    offline_to_proc = []
+    if offline_file:
+        temp_off = pd.read_excel(offline_file)
+        date_col = 'yrmth' if 'yrmth' in temp_off.columns else 'Mes'
+        offline_to_proc = [m for m in temp_off[date_col].unique() if m not in existing_months]
+
+    # Para Online: sacamos el mes del nombre del archivo
+    online_month = get_month_from_name(online_file.name) if online_file else None
+    online_to_proc = [online_month] if online_month and online_month not in existing_months else []
+
+    # 4. Ejecutar procesos
+    df_off_new = process_offline(offline_file, offline_to_proc)
+    df_on_new = process_online(online_file, online_month if online_to_proc else None)
+
+    df_final = pd.concat([df_off_new, df_on_new], ignore_index=True)
+
+    if not df_final.empty:
+        # Guardar resultados
+        with pd.ExcelWriter(AUTOMOTRIZ_PATH, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+            combined = pd.concat([df_main, df_final], ignore_index=True)
+            combined.to_excel(writer, sheet_name='Investment Raw data', index=False)
         
-        if dataframes:
-            final_df = pd.concat(dataframes)
-            st.dataframe(final_df.head())
-
-# --- BLOQUE JAC ---
-elif marca_seleccionada == "JAC":
-    st.subheader("📍 Panel JAC")
-    f_jac = st.file_uploader("Subir Naming JAC", type=['xlsx'])
-    if f_jac and st.button("Procesar JAC"):
-        final_df = process_naming_convention(pd.read_excel(f_jac), "JAC INDUSTRIA")
-        st.success("JAC procesado correctamente")
-
-# --- BLOQUE INDUSTRIA (HR) ---
-elif marca_seleccionada == "INDUSTRIA (HR)":
-    st.subheader("📊 Panel Industria (HR Ratings)")
-    st.info("Sube cada medio en su espacio correspondiente para aplicar los multiplicadores correctos.")
-    
-    tab1, tab2, tab3 = st.tabs(["📺 Televisión", "📻 Radio", "📰 Prensa"])
-    
-    with tab1:
-        f_tv = st.file_uploader("Reporte HR - TV (Nacional/Local)", type=['xlsx'])
-    with tab2:
-        f_rd = st.file_uploader("Reporte HR - Radio", type=['xlsx'])
-    with tab3:
-        f_pr = st.file_uploader("Reporte HR - Prensa/Revistas", type=['xlsx'])
+        print(f"✅ Se agregaron {len(df_final)} filas nuevas a automotriz.xlsx")
         
-    if st.button("Procesar Industria"):
-        list_ind = []
-        if f_tv: list_ind.append(process_hr_ratings(pd.read_excel(f_tv), "TELEVISION"))
-        if f_rd: list_ind.append(process_hr_ratings(pd.read_excel(f_rd), "RADIO"))
-        if f_pr: list_ind.append(process_hr_ratings(pd.read_excel(f_pr), "PRENSA"))
-        
-        if list_ind:
-            final_df = pd.concat(list_ind)
-            st.success(f"Procesadas {len(final_df)} filas de industria.")
+        # Mover a Modificado
+        MODIFICADO_FOLDER.mkdir(exist_ok=True)
+        if offline_file: shutil.move(str(offline_file), MODIFICADO_FOLDER / offline_file.name)
+        if online_file: shutil.move(str(online_file), MODIFICADO_FOLDER / online_file.name)
+    else:
+        print("¡Nada nuevo que procesar! Los meses ya existen en el archivo maestro.")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# DESCARGA DE RESULTADOS
-# ─────────────────────────────────────────────────────────────────────────────
-if not final_df.empty:
-    st.divider()
-    st.subheader("✅ Resultado Listo")
-    
-    # Botón para descargar el CSV compatible con Power BI
-    csv = final_df.to_csv(index=False).encode('utf-8-sig')
-    st.download_button(
-        label="⬇️ Descargar layout_automotriz.csv",
-        data=csv,
-        file_name=f"upload_to_automotriz_{datetime.now().strftime('%Y%m%d')}.csv",
-        mime="text/csv",
-    )
-    
-    # Resumen visual rápido
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total Filas", len(final_df))
-    c2.metric("Inversión Total", f"${final_df['Inversión (MXN)'].sum():,.0f}")
-    c3.metric("Meses Detectados", final_df['Año-mes'].dt.month.nunique())
-    
+if __name__ == "__main__":
+    main()

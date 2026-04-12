@@ -372,8 +372,7 @@ elif marca_seleccionada == "KAVAK":
         if st.sidebar.button("🗑️ Resetear Memoria Dashboard", key="dg_final_reset"):
             st.session_state.dg_memoria_historica = pd.DataFrame()
             st.rerun()
-            
-        
+
 # --- BLOQUE DASHBOARD GLOBAL ---
  elif marca_seleccionada == "Dashboard Global":
         st.title("📊 Dashboard Estratégico 2026")
@@ -508,6 +507,8 @@ elif marca_seleccionada == "KAVAK":
         if st.sidebar.button("🗑️ Resetear Memoria Dashboard", key="dg_final_reset_btn"):
             st.session_state.dg_memoria_historica = pd.DataFrame()
             st.rerun()
+        
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS (FINAL DEL SCRIPT)
 # ─────────────────────────────────────────────────────────────────────────────

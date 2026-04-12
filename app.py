@@ -375,7 +375,7 @@ elif marca_seleccionada == "KAVAK":
             
         
 # --- BLOQUE DASHBOARD GLOBAL ---
-elif marca_seleccionada == "Dashboard Global":
+ elif marca_seleccionada == "Dashboard Global":
         st.title("📊 Dashboard Estratégico 2026")
         
         if 'dg_memoria_historica' not in st.session_state:
@@ -390,7 +390,7 @@ elif marca_seleccionada == "Dashboard Global":
         }
         
         dg_todas_foco = list(set([m for sub in GRUPOS_VISTAS.values() for m in sub]))
-        dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_v_definitiva")
+        dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_v_final_v300")
 
         if dg_archivo:
             if dg_archivo.name.endswith('.csv'):
@@ -402,7 +402,6 @@ elif marca_seleccionada == "Dashboard Global":
             
             dg_df_raw.columns = [str(c).strip() for c in dg_df_raw.columns]
 
-            # Procesamiento de datos (Normalización)
             if '#Grupo' in dg_df_raw.columns:
                 dg_temp = dg_df_raw.copy()
                 dg_temp['Marca_Original'] = dg_temp['#Grupo']
@@ -435,7 +434,6 @@ elif marca_seleccionada == "Dashboard Global":
                     return t
                 dg_temp['Marca_Final'] = dg_temp['Marca_Original'].apply(asignar_marca_limpia)
                 
-                # Guardar en memoria evitando duplicar el mismo mes
                 dg_final_to_save = dg_temp[['Marca_Final', 'Periodo', 'Monto', 'Medio_Final']].copy()
                 periodos_nuevos = dg_final_to_save['Periodo'].unique()
                 df_historial = st.session_state.dg_memoria_historica
@@ -444,9 +442,8 @@ elif marca_seleccionada == "Dashboard Global":
                     df_historial = df_historial[~df_historial['Periodo'].isin(periodos_nuevos)]
                 
                 st.session_state.dg_memoria_historica = pd.concat([df_historial, dg_final_to_save])
-                st.success("✅ Datos actualizados correctamente.")
+                st.success("✅ Datos sincronizados correctamente.")
 
-        # --- SECCIÓN DE VISUALIZACIÓN ---
         if not st.session_state.dg_memoria_historica.empty:
             df_display = st.session_state.dg_memoria_historica.copy()
             import altair as alt
@@ -458,7 +455,7 @@ elif marca_seleccionada == "Dashboard Global":
                     df_grupo = df_display[df_display['Marca_Final'].isin(lista_marcas)]
                     
                     if not df_grupo.empty:
-                        # 1. TARJETAS DE TOTALES (KPIs)
+                        # Totales para las tarjetas superiores
                         t_gral = df_grupo['Monto'].sum()
                         t_on = df_grupo[df_grupo['Medio_Final']=='ONLINE']['Monto'].sum()
                         t_off = df_grupo[df_grupo['Medio_Final']=='OFFLINE']['Monto'].sum()
@@ -472,13 +469,13 @@ elif marca_seleccionada == "Dashboard Global":
                         c4.metric("OOH", f"${t_ooh:,.0f}")
                         st.markdown("---")
 
-                        # 2. GRÁFICA DE BARRAS (Agrupada para que el total sea real)
+                        # Agrupación masiva para que la gráfica sume igual que las tarjetas
                         df_plot = df_grupo.groupby(['Periodo', 'Medio_Final'])['Monto'].sum().reset_index()
                         df_total_mes = df_plot.groupby('Periodo')['Monto'].sum().reset_index()
 
                         base = alt.Chart(df_plot).encode(x=alt.X('Periodo:O', title="Mes"))
 
-                        # Barras con colores específicos
+                        # Barras con colores estéticos
                         bars = base.mark_bar().encode(
                             y=alt.Y('Monto:Q', title="Inversión", stack="zero"),
                             color=alt.Color('Medio_Final:N', 
@@ -488,13 +485,13 @@ elif marca_seleccionada == "Dashboard Global":
                             tooltip=[alt.Tooltip('Periodo'), alt.Tooltip('Medio_Final'), alt.Tooltip('Monto', format='$,.0f')]
                         )
 
-                        # Monto interno en blanco (millones)
+                        # Montos internos en blanco (formato compacto: $136M)
                         labels = base.mark_text(color='white', fontWeight='bold', dy=15, size=11).encode(
                             y=alt.Y('Monto:Q', stack='zero'),
-                            text=alt.Text('Monto:Q', format='$.2s') 
+                            text=alt.Text('Monto:Q', format='$.3s')
                         )
 
-                        # Total arriba de la barra en negro
+                        # Monto Total arriba en negro (formato compacto: $676M)
                         totals = alt.Chart(df_total_mes).mark_text(dy=-15, fontWeight='bold', size=14, color='black').encode(
                             x=alt.X('Periodo:O'),
                             y=alt.Y('Monto:Q'),
@@ -503,16 +500,14 @@ elif marca_seleccionada == "Dashboard Global":
 
                         st.altair_chart((bars + labels + totals).properties(height=500), use_container_width=True)
 
-                        # 3. TABLA DE DETALLE
                         st.write("#### Detalle por Marca")
                         piv_g = df_grupo.pivot_table(index='Marca_Final', columns='Periodo', values='Monto', aggfunc='sum', fill_value=0)
                         piv_g = piv_g.reindex(lista_marcas).dropna(how='all')
                         st.dataframe(piv_g.style.format("${:,.2f}"), use_container_width=True)
 
-        if st.sidebar.button("🗑️ Resetear Memoria Dashboard", key="dg_final_reset"):
+        if st.sidebar.button("🗑️ Resetear Memoria Dashboard", key="dg_final_reset_btn"):
             st.session_state.dg_memoria_historica = pd.DataFrame()
             st.rerun()
-
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS (FINAL DEL SCRIPT)
 # ─────────────────────────────────────────────────────────────────────────────

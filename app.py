@@ -287,29 +287,59 @@ elif marca_seleccionada == "KAVAK":
         except Exception as e:
             st.error(f"Error al procesar Kavak: {e}")
 
-# --- BLOQUE INDUSTRIA (HR) ---
-elif marca_seleccionada == "INDUSTRIA (HR)":
+# --- BLOQUE INDUSTRIA Offline ---
+elif marca_seleccionada == "INDUSTRIA Offline ":
     st.subheader("📊 Panel Industria (HR Ratings)")
-    st.info("Sube cada medio en su espacio correspondiente para aplicar los multiplicadores correctos.")
+    
+    # --- NUEVA SECCIÓN: AJUSTE DE MULTIPLICADORES ---
+    with st.expander("⚙️ Configurar Multiplicadores de Inversión (Factores)", expanded=True):
+        col_m1, col_m2, col_m3 = st.columns(3)
+        with col_m1:
+            m_tv = st.number_input("Factor TV", min_value=1.0, max_value=5.0, value=1.3, step=0.1)
+        with col_m2:
+            m_rd = st.number_input("Factor Radio", min_value=1.0, max_value=5.0, value=1.3, step=0.1)
+        with col_m3:
+            m_pr = st.number_input("Factor Prensa", min_value=1.0, max_value=5.0, value=1.0, step=0.1)
+            
+    # Actualizamos el diccionario local de multiplicadores con lo que el usuario puso en la interfaz
+    multiplicadores_usuario = {
+        "TELEVISION": m_tv,
+        "RADIO": m_rd,
+        "PRENSA": m_pr
+    }
+
+    st.info("Sube cada medio para aplicar los factores configurados arriba.")
     
     tab1, tab2, tab3 = st.tabs(["📺 Televisión", "📻 Radio", "📰 Prensa"])
     
     with tab1:
-        f_tv = st.file_uploader("Reporte HR - TV (Nacional/Local)", type=['xlsx'])
+        f_tv = st.file_uploader("Reporte HR - TV", type=['xlsx'], key="hr_tv")
     with tab2:
-        f_rd = st.file_uploader("Reporte HR - Radio", type=['xlsx'])
+        f_rd = st.file_uploader("Reporte HR - Radio", type=['xlsx'], key="hr_rd")
     with tab3:
-        f_pr = st.file_uploader("Reporte HR - Prensa/Revistas", type=['xlsx'])
+        f_pr = st.file_uploader("Reporte HR - Prensa", type=['xlsx'], key="hr_pr")
         
     if st.button("Procesar Industria"):
         list_ind = []
-        if f_tv: list_ind.append(process_hr_ratings(pd.read_excel(f_tv), "TELEVISION"))
-        if f_rd: list_ind.append(process_hr_ratings(pd.read_excel(f_rd), "RADIO"))
-        if f_pr: list_ind.append(process_hr_ratings(pd.read_excel(f_pr), "PRENSA"))
+        
+        # Función interna que usa los multiplicadores que el usuario acaba de elegir
+        def process_hr_custom(file, medio_key):
+            df_temp = pd.read_excel(file)
+            # Llamamos a tu función base pero pasamos el multiplicador elegido en la UI
+            res = process_hr_ratings(df_temp, medio_key)
+            # Sobreescribimos la Inversión F30 con el factor del slider/number_input
+            factor = multiplicadores_usuario.get(medio_key, 1.0)
+            res['Inversión F30'] = res['Inversión (MXN)'] * factor
+            return res
+
+        if f_tv: list_ind.append(process_hr_custom(f_tv, "TELEVISION"))
+        if f_rd: list_ind.append(process_hr_custom(f_rd, "RADIO"))
+        if f_pr: list_ind.append(process_hr_custom(f_pr, "PRENSA"))
         
         if list_ind:
-            final_df = pd.concat(list_ind)
-            st.success(f"Procesadas {len(final_df)} filas de industria.")
+            final_df = pd.concat(list_ind, ignore_index=True)
+            st.success(f"✅ Procesadas {len(final_df)} filas con multiplicadores personalizados.")
+            st.dataframe(final_df.head())
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS

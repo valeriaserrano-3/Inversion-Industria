@@ -296,6 +296,7 @@ elif marca_seleccionada == "OOH":
 elif marca_seleccionada == "Dashboard Global":
     st.title("📊 Dashboard Estratégico 2026")
     
+    # 1. Inicializar memoria si no existe
     if 'dg_memoria_historica' not in st.session_state:
         st.session_state.dg_memoria_historica = pd.DataFrame()
 
@@ -306,41 +307,39 @@ elif marca_seleccionada == "Dashboard Global":
         "BAIC": ["MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", "JETOUR", "CHANGAN", "JAC", "MOTORNATION", "BAIC"]
     }
     
-    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_fix_keyerror")
+    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_final_v4")
 
     if dg_archivo:
-        # Procesar según tipo de archivo
-        if dg_archivo.name.endswith('.csv'):
-            dg_df_raw = pd.read_csv(dg_archivo)
-        else:
-            dg_df_raw = pd.read_excel(dg_archivo)
+        try:
+            # Leer archivo
+            df_raw = pd.read_csv(dg_archivo) if dg_archivo.name.endswith('.csv') else pd.read_excel(dg_archivo)
+            df_raw.columns = [str(c).strip() for c in df_raw.columns]
+
+            # Procesar solo si las columnas existen
+            if '#Grupo' in df_raw.columns and 'Año-mes' in df_raw.columns:
+                df_raw['Monto'] = pd.to_numeric(df_raw['Inversión (MXN)'], errors='coerce').fillna(0)
+                df_raw['Periodo'] = pd.to_datetime(df_raw['Año-mes'], errors='coerce')
+                df_raw['Mes_Nombre'] = df_raw['Periodo'].dt.month_name()
+                df_raw['Marca_Final'] = df_raw['#Grupo'].str.upper()
+                df_raw['Medio_Final'] = df_raw['Fuente'].str.upper().fillna('ONLINE')
+                
+                # Guardar en memoria y limpiar errores de fecha
+                st.session_state.dg_memoria_historica = df_raw.dropna(subset=['Periodo', 'Mes_Nombre'])
+                st.success("✅ Archivo procesado correctamente.")
+            else:
+                st.error("El archivo no tiene las columnas requeridas: '#Grupo' y 'Año-mes'")
+        except Exception as e:
+            st.error(f"Error al leer el archivo: {e}")
+
+    # --- VALIDACIÓN ANTICHOQUE ---
+    # Solo mostramos el Dashboard si la memoria NO está vacía Y tiene la columna necesaria
+    if not st.session_state.dg_memoria_historica.empty and 'Mes_Nombre' in st.session_state.dg_memoria_historica.columns:
         
-        dg_df_raw.columns = [str(c).strip() for c in dg_df_raw.columns]
-
-        # Validamos que el archivo tenga las columnas necesarias
-        if '#Grupo' in dg_df_raw.columns and 'Año-mes' in dg_df_raw.columns:
-            dg_temp = dg_df_raw.copy()
-            dg_temp['Monto'] = pd.to_numeric(dg_temp['Inversión (MXN)'], errors='coerce').fillna(0)
-            dg_temp['Periodo'] = pd.to_datetime(dg_temp['Año-mes'], errors='coerce')
-            # CREACIÓN CRÍTICA DE LA COLUMNA
-            dg_temp['Mes_Nombre'] = dg_temp['Periodo'].dt.month_name()
-            dg_temp['Marca_Final'] = dg_temp['#Grupo'].str.upper()
-            dg_temp['Medio_Final'] = dg_temp['Fuente'].str.upper().fillna('ONLINE')
-            
-            st.session_state.dg_memoria_historica = dg_temp.dropna(subset=['Periodo'])
-            st.success("✅ Datos cargados. Ahora selecciona el mes abajo.")
-        else:
-            st.error("❌ El archivo no tiene las columnas '#Grupo' o 'Año-mes'.")
-
-    # SOLO EJECUTAR SI HAY DATOS
-    if not st.session_state.dg_memoria_historica.empty:
         df_full = st.session_state.dg_memoria_historica
-        
-        # Filtro de Mes seguro
         meses_disponibles = sorted(df_full['Mes_Nombre'].unique().tolist())
-        mes_seleccionado = st.selectbox("📅 Selecciona el mes a consultar:", meses_disponibles)
         
-        df_mes = df_full[df_full['Mes_Nombre'] == mes_seleccionado]
+        mes_sel = st.selectbox("📅 Selecciona el mes:", meses_disponibles)
+        df_mes = df_full[df_full['Mes_Nombre'] == mes_sel]
         
         import altair as alt
         tabs = st.tabs(list(GRUPOS_VISTAS.keys()))
@@ -351,35 +350,41 @@ elif marca_seleccionada == "Dashboard Global":
                 df_g = df_mes[df_mes['Marca_Final'].isin(marcas_foco)]
                 
                 if not df_g.empty:
-                    # TARJETAS
+                    # Métricas
                     t_total = df_g['Monto'].sum()
                     t_on = df_g[df_g['Medio_Final'].str.contains('ONLINE|DIGITAL|ADMETRICKS', na=False)]['Monto'].sum()
                     t_off = df_g[df_g['Medio_Final'].str.contains('OFFLINE|TV|RADIO|PRENSA', na=False)]['Monto'].sum()
                     t_ooh = df_g[df_g['Medio_Final'].str.contains('OOH|EXTERIOR', na=False)]['Monto'].sum()
 
-                    st.markdown(f"## {nombre_grupo} - {mes_seleccionado}")
+                    st.markdown(f"## {nombre_grupo} - {mes_sel}")
                     c1, c2, c3, c4 = st.columns(4)
                     c1.metric("TOTAL GRUPO", f"${t_total:,.0f}")
                     c2.metric("ONLINE", f"${t_on:,.0f}")
                     c3.metric("OFFLINE", f"${t_off:,.0f}")
                     c4.metric("OOH", f"${t_ooh:,.0f}")
                     
-                    # GRÁFICA
-                    df_plot = df_g.groupby(['Mes_Nombre', 'Medio_Final'])['Monto'].sum().reset_index()
-                    chart = alt.Chart(df_plot).mark_bar(size=70).encode(
-                        x=alt.X('Mes_Nombre:N', title="Mes Seleccionado"),
-                        y=alt.Y('Monto:Q', title="Inversión ($)"),
+                    # Gráfica
+                    df_plot = df_g.groupby(['Medio_Final'])['Monto'].sum().reset_index()
+                    chart = alt.Chart(df_plot).mark_bar(size=80).encode(
+                        x=alt.X('Medio_Final:N', title="Medio"),
+                        y=alt.Y('Monto:Q', title="Inversión"),
                         color=alt.Color('Medio_Final:N', scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], range=['#2471A3', '#D35400', '#28B463'])),
                         tooltip=[alt.Tooltip('Monto', format="$,.0f")]
                     ).properties(height=400)
                     st.altair_chart(chart, use_container_width=True)
 
-                    # TABLA
+                    # Tabla
                     st.write("### Detalle por Marca")
-                    df_tabla = df_g.groupby('Marca_Final')['Monto'].sum().reset_index().sort_values('Monto', ascending=False)
-                    st.dataframe(df_tabla.style.format({"Monto": "${:,.2f}"}), use_container_width=True)
+                    st.dataframe(df_g.groupby('Marca_Final')['Monto'].sum().reset_index().sort_values('Monto', ascending=False).style.format({"Monto": "${:,.2f}"}), use_container_width=True)
+                else:
+                    st.info(f"No hay datos para {nombre_grupo} en {mes_sel}")
     else:
-        st.info("💡 Sube un archivo arriba para activar el Dashboard.")
+        # En lugar de error, mostramos una instrucción amigable
+        st.info("👋 Por favor, sube un archivo Excel o CSV con las columnas '#Grupo' e 'Inversión (MXN)' para activar el Dashboard.")
+
+    if st.sidebar.button("🗑️ Limpiar Memoria"):
+        st.session_state.dg_memoria_historica = pd.DataFrame()
+        st.rerun()
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS (FINAL DEL SCRIPT)
 # ─────────────────────────────────────────────────────────────────────────────

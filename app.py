@@ -292,15 +292,14 @@ elif marca_seleccionada == "OOH":
         final_df = res_ooh[res_ooh['Inversión (MXN)'] > 0].copy()
         st.success("✅ OOH Procesado.")
 
-# --- BLOQUE DASHBOARD GLOBAL CORREGIDO (GRÁFICA SIN DUPLICADOS) ---
-# --- BLOQUE DASHBOARD GLOBAL CON UNIFICACIÓN REFORZADA ---
+# --- BLOQUE DASHBOARD GLOBAL: UNIFICACIÓN TOTAL BASADA EN "SHORT NAME" ---
 elif marca_seleccionada == "Dashboard Global":
     st.title("📊 Dashboard Estratégico 2026")
     
     if 'dg_memoria_historica' not in st.session_state:
         st.session_state.dg_memoria_historica = pd.DataFrame()
 
-    # CATALOGO MAESTRO
+    # 1. CATALOGO MAESTRO (Nombres finales según tu lista oficial)
     GRUPOS_VISTAS = {
         "GWM": ["GWM MEXICO", "NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", "KIA", "GEELY", "CHIREY", "MG", "GAC", "TOYOTA", "CHANGAN MEXICO", "EXEED"],
         "JAC": ["JAC", "JAC INDUSTRIA", "BYD", "NISSAN", "RAM", "CHEVROLET", "VOLKSWAGEN", "KIA", "HYUNDAI", "GEELY", "CHIREY", "RENAULT", "HONDA", "FORD", "MITSUBISHI", "MG", "TOYOTA", "GWM MEXICO", "PEUGEOT", "GAC", "SUZUKI", "CHANGAN MEXICO", "SEAT", "MAZDA", "FOTON", "JETOUR"],
@@ -308,32 +307,56 @@ elif marca_seleccionada == "Dashboard Global":
         "BAIC": ["BAIC", "MOTORNATION", "MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", "JETOUR", "CHANGAN MEXICO", "JAC"]
     }
     
-    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_unificador_v2")
+    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_final_ultra_fix")
 
     if dg_archivo:
         try:
             df_raw = pd.read_csv(dg_archivo) if dg_archivo.name.endswith('.csv') else pd.read_excel(dg_archivo)
             df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
-            if '#Grupo' in df_raw.columns:
+            # Prioridad absoluta a la columna que me indicaste
+            col_ref = "short name" if "short name" in df_raw.columns else "#Grupo"
+
+            if col_ref in df_raw.columns:
                 df_temp = df_raw.copy()
                 
-                # --- SECCIÓN DE UNIFICACIÓN REFORZADA ---
-                def unificar_marcas_industria(txt):
-                    n = str(txt).upper().strip()
-                    # Si contiene la palabra, unificamos al nombre oficial del catálogo
-                    if "GWM" in n: return "GWM MEXICO"
-                    if "NISSAN" in n: return "NISSAN"
-                    if "CHANGAN" in n: return "CHANGAN MEXICO"
-                    if "CHEVROLET" in n or "GENERAL MOTORS" in n: return "CHEVROLET"
-                    if "JAC INDUSTRIA" in n: return "JAC INDUSTRIA"
-                    if "JAC" in n: return "JAC"
-                    if "CHIREY" in n or "OMODA" in n or "JAECOO" in n: return "CHIREY"
-                    if "VOLKSWAGEN" in n: return "VOLKSWAGEN"
-                    if "HYUNDAI" in n: return "HYUNDAI"
-                    return n
+                # --- 2. LÓGICA DE UNIFICACIÓN AGRESIVA POR PALABRA CLAVE ---
+                def unificar_marcas_maestro(valor):
+                    v = str(valor).upper().strip()
+                    
+                    # Unificación de NISSAN (Todas sus variantes)
+                    if "NISSAN" in v: return "NISSAN"
+                    
+                    # Unificación de VOLKSWAGEN (VW, Volkswagen de Mexico, etc.)
+                    if "VOLKSWAGEN" in v or "VW" in v: return "VOLKSWAGEN"
+                    
+                    # Unificación de GWM
+                    if "GWM" in v: return "GWM MEXICO"
+                    
+                    # Unificación de CHANGAN
+                    if "CHANGAN" in v: return "CHANGAN MEXICO"
+                    
+                    # Unificación de CHIREY / OMODA / JAECOO
+                    if any(k in v for k in ["CHIREY", "OMODA", "JAECOO"]): return "CHIREY"
+                    
+                    # Unificación de JAC
+                    if "JAC INDUSTRIA" in v: return "JAC INDUSTRIA"
+                    if "JAC" in v: return "JAC"
+                    
+                    # Unificación de CHEVROLET / GM
+                    if "CHEVROLET" in v or "GENERAL MOTORS" in v: return "CHEVROLET"
+                    
+                    # Respaldo para otras marcas del catálogo
+                    if "HYUNDAI" in v: return "HYUNDAI"
+                    if "TOYOTA" in v: return "TOYOTA"
+                    if "FORD" in v: return "FORD"
+                    
+                    return v
 
-                df_temp['Marca_Final'] = df_temp['#Grupo'].apply(unificar_marcas_industria)
+                # Crear la columna limpia
+                df_temp['Marca_Final'] = df_temp[col_ref].apply(unificar_marcas_maestro)
+                
+                # Procesar Monto
                 df_temp['Monto'] = pd.to_numeric(df_temp['Inversión (MXN)'], errors='coerce').fillna(0)
                 
                 # Procesar Fecha
@@ -343,18 +366,19 @@ elif marca_seleccionada == "Dashboard Global":
                 
                 # Clasificar Medios
                 def cat_medio(x):
-                    v = str(x).upper()
-                    if any(k in v for k in ['OOH', 'EXTERIOR', 'VALLA', 'MUPI', 'RELOJ', 'KIOSCO', 'COLUMNA', 'SITIO']): return 'OOH'
-                    if any(k in v for k in ['OFFLINE', 'TV', 'RADIO', 'PRENSA']): return 'OFFLINE'
+                    f = str(x).upper()
+                    if any(k in f for k in ['OOH', 'EXTERIOR', 'VALLA', 'MUPI', 'RELOJ', 'KIOSCO', 'COLUMNA', 'SITIO']): return 'OOH'
+                    if any(k in f for k in ['OFFLINE', 'TV', 'RADIO', 'PRENSA']): return 'OFFLINE'
                     return 'ONLINE'
                 df_temp['Medio_Final'] = df_temp['Fuente'].apply(cat_medio)
                 
                 st.session_state.dg_memoria_historica = df_temp
-                st.success("✅ Datos unificados (Nissan incluido).")
-        except Exception as e:
-            st.error(f"Error: {e}")
+                st.success(f"✅ Catálogo aplicado. VW, Nissan y GWM unificados desde '{col_ref}'.")
 
-    # --- RENDER ---
+        except Exception as e:
+            st.error(f"Error al procesar el catálogo: {e}")
+
+    # --- 3. DASHBOARD Y GRÁFICAS ---
     if not st.session_state.dg_memoria_historica.empty:
         df_full = st.session_state.dg_memoria_historica
         mes_sel = st.selectbox("📅 Selecciona el mes:", [m for m in df_full['Mes_Nombre'].unique() if m != "Desconocido"])
@@ -365,11 +389,11 @@ elif marca_seleccionada == "Dashboard Global":
 
         for i, grupo in enumerate(GRUPOS_VISTAS.keys()):
             with tabs[i]:
-                marcas_ok = GRUPOS_VISTAS[grupo]
-                df_g = df_mes[df_mes['Marca_Final'].isin(marcas_ok)]
+                marcas_oficiales = GRUPOS_VISTAS[grupo]
+                df_g = df_mes[df_mes['Marca_Final'].isin(marcas_oficiales)]
                 
                 if not df_g.empty:
-                    # Totales
+                    # Cálculo de métricas unificadas
                     t_tot = df_g['Monto'].sum()
                     t_on = df_g[df_g['Medio_Final'] == 'ONLINE']['Monto'].sum()
                     t_off = df_g[df_g['Medio_Final'] == 'OFFLINE']['Monto'].sum()
@@ -382,15 +406,17 @@ elif marca_seleccionada == "Dashboard Global":
                     c3.metric("OFFLINE", f"${t_off:,.0f}")
                     c4.metric("OOH", f"${t_ooh:,.0f}")
                     
+                    # Gráfica consolidada
                     chart = alt.Chart(df_g).mark_bar(size=120).encode(
                         x=alt.X('Mes_Nombre:N', title="Mes"),
-                        y=alt.Y('sum(Monto):Q', title="Inversión ($)"),
+                        y=alt.Y('sum(Monto):Q', title="Inversión Total ($)"),
                         color=alt.Color('Medio_Final:N', scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], range=['#2471A3', '#D35400', '#28B463'])),
                         tooltip=['Medio_Final', alt.Tooltip('sum(Monto)', format="$,.0f")]
                     ).properties(height=450)
                     st.altair_chart(chart, use_container_width=True)
 
-                    st.write("### Detalle por Marca")
+                    st.write("### Detalle por Marca (Unificada)")
+                    # Sumamos todas las variantes (Nissan + Nissan Mexicana = 1 solo Nissan)
                     df_t = df_g.groupby('Marca_Final')['Monto'].sum().reset_index().sort_values('Monto', ascending=False)
                     st.dataframe(df_t.style.format({"Monto": "${:,.2f}"}), use_container_width=True)
 # ─────────────────────────────────────────────────────────────────────────────

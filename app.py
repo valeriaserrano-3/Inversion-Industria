@@ -306,7 +306,7 @@ elif marca_seleccionada == "Dashboard Global":
         "BAIC": ["MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", "JETOUR", "CHANGAN", "JAC", "MOTORNATION", "BAIC"]
     }
     
-    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_final_fix_v6")
+    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_final_stacked_v7")
 
     if dg_archivo:
         try:
@@ -315,80 +315,79 @@ elif marca_seleccionada == "Dashboard Global":
 
             if '#Grupo' in df_raw.columns:
                 df_temp = df_raw.copy()
-                
-                # 1. LIMPIEZA AGRESIVA DE FECHA (Para el formato 'feb2026)
-                df_temp['Mes_Raw'] = df_temp['Año-mes'].astype(str).str.replace("'", "").str.lower()
-                
-                # Diccionario manual para asegurar que NUNCA falle el nombre del mes
-                mapa_meses = {
-                    'jan': 'January', 'feb': 'February', 'mar': 'March', 'apr': 'April',
-                    'may': 'May', 'jun': 'June', 'jul': 'July', 'aug': 'August',
-                    'sep': 'September', 'oct': 'October', 'nov': 'November', 'dec': 'December'
-                }
-                
-                # Extraemos las primeras 3 letras (jan, feb, etc) y mapeamos al nombre real
-                df_temp['Mes_Nombre'] = df_temp['Mes_Raw'].str[:3].map(mapa_meses).fillna("Unknown")
-                
-                # 2. PROCESAR MONTOS Y MARCAS
+                # Conversión de fecha estándar (ya que tu archivo ya viene limpio)
+                df_temp['Periodo'] = pd.to_datetime(df_temp['Año-mes'], errors='coerce')
+                df_temp['Mes_Nombre'] = df_temp['Periodo'].dt.month_name()
                 df_temp['Monto'] = pd.to_numeric(df_temp['Inversión (MXN)'], errors='coerce').fillna(0)
                 df_temp['Marca_Final'] = df_temp['#Grupo'].str.upper()
-                df_temp['Medio_Final'] = df_temp['Fuente'].str.upper().fillna('ONLINE')
                 
-                st.session_state.dg_memoria_historica = df_temp
-                st.success(f"✅ ¡Cargado! Mes detectado: {df_temp['Mes_Nombre'].unique()}")
+                # Categorización para asegurar el apilamiento por colores
+                def cat_medio(x):
+                    v = str(x).upper()
+                    if any(k in v for k in ['OOH', 'EXTERIOR', 'VALLA']): return 'OOH'
+                    if any(k in v for k in ['OFFLINE', 'TV', 'RADIO', 'PRENSA']): return 'OFFLINE'
+                    return 'ONLINE'
+                
+                df_temp['Medio_Final'] = df_temp['Fuente'].apply(cat_medio)
+                
+                st.session_state.dg_memoria_historica = df_temp.dropna(subset=['Mes_Nombre'])
+                st.success("✅ Datos sincronizados correctamente.")
         except Exception as e:
-            st.error(f"Error técnico: {e}")
+            st.error(f"Error: {e}")
 
-    # --- RENDERIZADO SEGURO ---
     if not st.session_state.dg_memoria_historica.empty:
         df_full = st.session_state.dg_memoria_historica
         
-        # Selector de mes basado en lo que logramos mapear
-        meses_disponibles = [m for m in df_full['Mes_Nombre'].unique() if m != "Unknown"]
-        if meses_disponibles:
-            mes_sel = st.selectbox("📅 Selecciona el mes:", meses_disponibles)
-            df_mes = df_full[df_full['Mes_Nombre'] == mes_sel]
-            
-            import altair as alt
-            tabs = st.tabs(list(GRUPOS_VISTAS.keys()))
+        # Selector de Mes
+        meses_disp = df_full['Mes_Nombre'].unique().tolist()
+        mes_sel = st.selectbox("📅 Selecciona el mes:", meses_disp)
+        df_mes = df_full[df_full['Mes_Nombre'] == mes_sel]
+        
+        import altair as alt
+        tabs = st.tabs(list(GRUPOS_VISTAS.keys()))
 
-            for i, nombre_grupo in enumerate(GRUPOS_VISTAS.keys()):
-                with tabs[i]:
-                    marcas_foco = GRUPOS_VISTAS[nombre_grupo]
-                    df_g = df_mes[df_mes['Marca_Final'].isin(marcas_foco)]
+        for i, grupo in enumerate(GRUPOS_VISTAS.keys()):
+            with tabs[i]:
+                marcas_foco = GRUPOS_VISTAS[grupo]
+                df_g = df_mes[df_mes['Marca_Final'].isin(marcas_foco)]
+                
+                if not df_g.empty:
+                    # Totales para tarjetas
+                    t_tot = df_g['Monto'].sum()
+                    t_on = df_g[df_g['Medio_Final'] == 'ONLINE']['Monto'].sum()
+                    t_off = df_g[df_g['Medio_Final'] == 'OFFLINE']['Monto'].sum()
+                    t_ooh = df_g[df_g['Medio_Final'] == 'OOH']['Monto'].sum()
+
+                    st.markdown(f"## {grupo} - {mes_sel}")
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("TOTAL GRUPO", f"${t_tot:,.0f}")
+                    c2.metric("ONLINE", f"${t_on:,.0f}")
+                    c3.metric("OFFLINE", f"${t_off:,.0f}")
+                    c4.metric("OOH", f"${t_ooh:,.0f}")
                     
-                    if not df_g.empty:
-                        # Métricas
-                        t_total = df_g['Monto'].sum()
-                        t_on = df_g[df_g['Medio_Final'].str.contains('ONLINE|DIGITAL|ADMETRICKS', na=False)]['Monto'].sum()
-                        t_off = df_g[df_g['Medio_Final'].str.contains('OFFLINE|TV|RADIO|PRENSA', na=False)]['Monto'].sum()
-                        t_ooh = df_g[df_g['Medio_Final'].str.contains('OOH|EXTERIOR', na=False)]['Monto'].sum()
+                    # --- GRÁFICA APILADA ---
+                    # Usamos sum(Monto) y el color para que se apilen solas
+                    chart = alt.Chart(df_g).mark_bar(size=100).encode(
+                        x=alt.X('Mes_Nombre:N', title="Mes"),
+                        y=alt.Y('sum(Monto):Q', title="Inversión Total ($)", axis=alt.Axis(format="$.2s")),
+                        color=alt.Color('Medio_Final:N', 
+                                       scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], 
+                                                       range=['#2471A3', '#D35400', '#28B463'])),
+                        tooltip=['Mes_Nombre', 'Medio_Final', alt.Tooltip('sum(Monto)', format="$,.0f")]
+                    ).properties(height=500)
+                    
+                    st.altair_chart(chart, use_container_width=True)
 
-                        st.markdown(f"## {nombre_grupo} - {mes_sel}")
-                        c1, c2, c3, c4 = st.columns(4)
-                        c1.metric("TOTAL GRUPO", f"${t_total:,.0f}")
-                        c2.metric("ONLINE", f"${t_on:,.0f}")
-                        c3.metric("OFFLINE", f"${t_off:,.0f}")
-                        c4.metric("OOH", f"${t_ooh:,.0f}")
-                        
-                        # Gráfica de Barras Gruesas
-                        df_plot = df_g.groupby('Medio_Final')['Monto'].sum().reset_index()
-                        chart = alt.Chart(df_plot).mark_bar(size=90).encode(
-                            x=alt.X('Medio_Final:N', title="Medio"),
-                            y=alt.Y('Monto:Q', title="Inversión ($)", axis=alt.Axis(format="$.2s")),
-                            color=alt.Color('Medio_Final:N', scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], range=['#2471A3', '#D35400', '#28B463'])),
-                            tooltip=[alt.Tooltip('Monto', format="$,.0f")]
-                        ).properties(height=400)
-                        st.altair_chart(chart, use_container_width=True)
+                    # Tabla detalle
+                    st.write("### Detalle por Marca")
+                    df_t = df_g.groupby('Marca_Final')['Monto'].sum().reset_index().sort_values('Monto', ascending=False)
+                    st.dataframe(df_t.style.format({"Monto": "${:,.2f}"}), use_container_width=True)
+                else:
+                    st.info(f"No hay datos para {grupo} en {mes_sel}")
 
-                        # Tabla Detalle
-                        st.write("### Detalle por Marca")
-                        df_tabla = df_g.groupby('Marca_Final')['Monto'].sum().reset_index().sort_values('Monto', ascending=False)
-                        st.dataframe(df_tabla.style.format({"Monto": "${:,.2f}"}), use_container_width=True)
-                    else:
-                        st.info(f"No hay datos de {nombre_grupo} para este mes.")
-        else:
-            st.warning("No se pudo reconocer el formato de fecha del archivo.")
+    if st.sidebar.button("🗑️ Limpiar Memoria"):
+        st.session_state.dg_memoria_historica = pd.DataFrame()
+        st.rerun()
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS (FINAL DEL SCRIPT)
 # ─────────────────────────────────────────────────────────────────────────────

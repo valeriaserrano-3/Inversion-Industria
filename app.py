@@ -293,20 +293,21 @@ elif marca_seleccionada == "OOH":
         st.success("✅ OOH Procesado.")
 
 # --- BLOQUE DASHBOARD GLOBAL CORREGIDO (GRÁFICA SIN DUPLICADOS) ---
-elif marca_seleccionada == "Dashboard Global":
+ elif marca_seleccionada == "Dashboard Global":
     st.title("📊 Dashboard Estratégico 2026")
     
     if 'dg_memoria_historica' not in st.session_state:
         st.session_state.dg_memoria_historica = pd.DataFrame()
 
+    # LISTA DE MARCAS EXACTAS (Ajustadas a tu archivo)
     GRUPOS_VISTAS = {
-        "GWM": ["NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", "KIA", "GWM", "GEELY", "CHIREY OMODA", "MG", "GAC", "TOYOTA", "CHANGAN", "EXEED"],
-        "JAC": ["BYD", "NISSAN", "RAM", "CHEVROLET", "VOLKSWAGEN", "KIA", "HYUNDAI", "GEELY", "CHIREY", "RENAULT", "HONDA", "FORD", "MITSUBISHI", "MG", "TOYOTA", "GWM MOTORS", "PEUGEOT", "GAC", "SUZUKI", "CHANGAN", "JAC", "JAC INDUSTRIA", "SEAT", "MAZDA", "FOTON", "JETOUR"],
-        "KAVAK": ["NISSAN", "GENERAL MOTORS", "HYUNDAI", "VOLKSWAGEN", "KAVAK", "KIA", "MITSUBISHI", "FORD MOTOR", "GEELY", "JEEP", "INFINITI", "PEUGEOT", "CHIREY", "RENAULT", "TOYOTA", "MG", "BBVA AUTOMARKET", "HONDA"],
-        "BAIC": ["MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", "JETOUR", "CHANGAN", "JAC", "MOTORNATION", "BAIC"]
+        "GWM": ["GWM MEXICO", "NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", "KIA", "GEELY", "CHIREY", "MG", "GAC", "TOYOTA", "CHANGAN", "EXEED"],
+        "JAC": ["JAC", "JAC INDUSTRIA", "BYD", "NISSAN", "RAM", "CHEVROLET", "VOLKSWAGEN", "KIA", "HYUNDAI", "GEELY", "CHIREY", "RENAULT", "HONDA", "FORD", "MITSUBISHI", "MG", "TOYOTA", "PEUGEOT", "GAC", "SUZUKI", "CHANGAN", "SEAT", "MAZDA", "FOTON", "JETOUR"],
+        "KAVAK": ["KAVAK", "NISSAN", "GENERAL MOTORS", "HYUNDAI", "VOLKSWAGEN", "KIA", "MITSUBISHI", "FORD MOTOR", "GEELY", "JEEP", "INFINITI", "PEUGEOT", "CHIREY", "RENAULT", "TOYOTA", "MG", "BBVA AUTOMARKET", "HONDA"],
+        "BAIC": ["BAIC", "MOTORNATION", "MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", "JETOUR", "CHANGAN", "JAC"]
     }
     
-    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_final_stacked_v7")
+    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_final_fix_exact")
 
     if dg_archivo:
         try:
@@ -315,32 +316,36 @@ elif marca_seleccionada == "Dashboard Global":
 
             if '#Grupo' in df_raw.columns:
                 df_temp = df_raw.copy()
-                # Conversión de fecha estándar (ya que tu archivo ya viene limpio)
-                df_temp['Periodo'] = pd.to_datetime(df_temp['Año-mes'], errors='coerce')
-                df_temp['Mes_Nombre'] = df_temp['Periodo'].dt.month_name()
-                df_temp['Monto'] = pd.to_numeric(df_temp['Inversión (MXN)'], errors='coerce').fillna(0)
-                df_temp['Marca_Final'] = df_temp['#Grupo'].str.upper()
                 
-                # Categorización para asegurar el apilamiento por colores
+                # 1. Limpieza de nombres (Solo quitar espacios, no agrupar "Motors" con "Mexico")
+                df_temp['Marca_Final'] = df_temp['#Grupo'].astype(str).str.strip().str.upper()
+                
+                # 2. Procesar Montos (La única columna de inversión)
+                df_temp['Monto'] = pd.to_numeric(df_temp['Inversión (MXN)'], errors='coerce').fillna(0)
+                
+                # 3. Procesar Fecha (Formato 'feb2026)
+                df_temp['Mes_Raw'] = df_temp['Año-mes'].astype(str).str.replace("'", "").str.strip().str.lower()
+                mapa_meses = {'jan': 'Enero', 'feb': 'Febrero', 'mar': 'Marzo', 'apr': 'Abril', 'may': 'Mayo', 'jun': 'Junio'}
+                df_temp['Mes_Nombre'] = df_temp['Mes_Raw'].str[:3].map(mapa_meses).fillna("Desconocido")
+                
+                # 4. Clasificar Medios
                 def cat_medio(x):
                     v = str(x).upper()
-                    if any(k in v for k in ['OOH', 'EXTERIOR', 'VALLA']): return 'OOH'
+                    if any(k in v for k in ['OOH', 'EXTERIOR', 'VALLA', 'MUPI', 'RELOJ', 'KIOSCO', 'COLUMNA', 'SITIO']): return 'OOH'
                     if any(k in v for k in ['OFFLINE', 'TV', 'RADIO', 'PRENSA']): return 'OFFLINE'
                     return 'ONLINE'
-                
                 df_temp['Medio_Final'] = df_temp['Fuente'].apply(cat_medio)
                 
-                st.session_state.dg_memoria_historica = df_temp.dropna(subset=['Mes_Nombre'])
-                st.success("✅ Datos sincronizados correctamente.")
+                st.session_state.dg_memoria_historica = df_temp
+                st.success("✅ Datos cargados correctamente.")
+
         except Exception as e:
             st.error(f"Error: {e}")
 
     if not st.session_state.dg_memoria_historica.empty:
         df_full = st.session_state.dg_memoria_historica
-        
-        # Selector de Mes
-        meses_disp = df_full['Mes_Nombre'].unique().tolist()
-        mes_sel = st.selectbox("📅 Selecciona el mes:", meses_disp)
+        meses_lista = [m for m in df_full['Mes_Nombre'].unique() if m != "Desconocido"]
+        mes_sel = st.selectbox("📅 Selecciona el mes:", meses_lista)
         df_mes = df_full[df_full['Mes_Nombre'] == mes_sel]
         
         import altair as alt
@@ -348,11 +353,12 @@ elif marca_seleccionada == "Dashboard Global":
 
         for i, grupo in enumerate(GRUPOS_VISTAS.keys()):
             with tabs[i]:
-                marcas_foco = GRUPOS_VISTAS[grupo]
-                df_g = df_mes[df_mes['Marca_Final'].isin(marcas_foco)]
+                # FILTRO EXACTO: Solo toma lo que está en la lista (e.g., GWM MEXICO sí, GWM Motors no)
+                marcas_ok = GRUPOS_VISTAS[grupo]
+                df_g = df_mes[df_mes['Marca_Final'].isin(marcas_ok)]
                 
                 if not df_g.empty:
-                    # Totales para tarjetas
+                    # Totales
                     t_tot = df_g['Monto'].sum()
                     t_on = df_g[df_g['Medio_Final'] == 'ONLINE']['Monto'].sum()
                     t_off = df_g[df_g['Medio_Final'] == 'OFFLINE']['Monto'].sum()
@@ -365,29 +371,21 @@ elif marca_seleccionada == "Dashboard Global":
                     c3.metric("OFFLINE", f"${t_off:,.0f}")
                     c4.metric("OOH", f"${t_ooh:,.0f}")
                     
-                    # --- GRÁFICA APILADA ---
-                    # Usamos sum(Monto) y el color para que se apilen solas
-                    chart = alt.Chart(df_g).mark_bar(size=100).encode(
+                    # Gráfica Apilada
+                    chart = alt.Chart(df_g).mark_bar(size=120).encode(
                         x=alt.X('Mes_Nombre:N', title="Mes"),
-                        y=alt.Y('sum(Monto):Q', title="Inversión Total ($)", axis=alt.Axis(format="$.2s")),
+                        y=alt.Y('sum(Monto):Q', title="Inversión ($)"),
                         color=alt.Color('Medio_Final:N', 
                                        scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], 
                                                        range=['#2471A3', '#D35400', '#28B463'])),
-                        tooltip=['Mes_Nombre', 'Medio_Final', alt.Tooltip('sum(Monto)', format="$,.0f")]
-                    ).properties(height=500)
+                        tooltip=['Medio_Final', alt.Tooltip('sum(Monto)', format="$,.0f")]
+                    ).properties(height=450)
                     
                     st.altair_chart(chart, use_container_width=True)
 
-                    # Tabla detalle
                     st.write("### Detalle por Marca")
                     df_t = df_g.groupby('Marca_Final')['Monto'].sum().reset_index().sort_values('Monto', ascending=False)
                     st.dataframe(df_t.style.format({"Monto": "${:,.2f}"}), use_container_width=True)
-                else:
-                    st.info(f"No hay datos para {grupo} en {mes_sel}")
-
-    if st.sidebar.button("🗑️ Limpiar Memoria"):
-        st.session_state.dg_memoria_historica = pd.DataFrame()
-        st.rerun()
 # ─────────────────────────────────────────────────────────────────────────────
 # DESCARGA DE RESULTADOS (FINAL DEL SCRIPT)
 # ─────────────────────────────────────────────────────────────────────────────

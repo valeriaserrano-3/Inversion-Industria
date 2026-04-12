@@ -455,19 +455,22 @@ def process_jac(uploaded_files: list, periods: set, mult: dict) -> pd.DataFrame:
     return pd.DataFrame(frames) if frames else pd.DataFrame()
 
 
-def process_kavak_baic_industria(uploaded_files: list, periods: set, mult: dict) -> pd.DataFrame:
+def process_kavak_baic_industria(uploaded_files: list, periods: set, mult: dict, grupo_fijo: str | None = None) -> pd.DataFrame:
     frames = []
     for uf in uploaded_files:
         try:
             xl = pd.ExcelFile(uf)
             name_up = uf.name.upper()
 
-            # Detectar grupo por nombre
-            grupo = "Industria"
-            if "KAVAK" in name_up:
-                grupo = "KAVAK"
-            elif "BAIC" in name_up:
-                grupo = "BAIC"
+            # Grupo: fijo si viene del tab específico, sino detectar por nombre de archivo
+            if grupo_fijo is not None:
+                grupo = grupo_fijo
+            else:
+                grupo = "Industria"
+                if "KAVAK" in name_up:
+                    grupo = "KAVAK"
+                elif "BAIC" in name_up:
+                    grupo = "BAIC"
 
             sheet_name = "KAVAK" if "KAVAK" in xl.sheet_names else xl.sheet_names[0]
             df = xl.parse(sheet_name)
@@ -719,63 +722,13 @@ def _tv_mult(medio_str: str, mult: dict) -> tuple:
     return mult["online"]  # 1.0, 1.3
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MERGE EN MEMORIA
+# COLUMNAS DE SALIDA
 # ─────────────────────────────────────────────────────────────────────────────
 LAYOUT_COLS = [
     "Fuente","Año","Año-mes","Inversión (MXN)","Inversión F30",
     "#Grupo","Categoría","Producto","medio","medio2","modelo",
     "Inversión original","No incluir",
 ]
-
-def merge_with_automotriz(df_new: pd.DataFrame, automotriz_bytes: bytes) -> tuple[pd.DataFrame, int, int]:
-    """
-    Combina df_new con Investment Raw data del xlsx subido.
-    Devuelve (df_combinado, filas_antes, filas_despues).
-    """
-    df_main = pd.read_excel(io.BytesIO(automotriz_bytes), sheet_name="Investment Raw data")
-    rows_before = len(df_main)
-    df_main["Año-mes"] = pd.to_datetime(df_main["Año-mes"], errors="coerce")
-
-    df_new_save = df_new.copy()
-    for col in LAYOUT_COLS:
-        if col not in df_new_save.columns:
-            df_new_save[col] = np.nan
-    df_new_save = df_new_save[LAYOUT_COLS]
-
-    df_combined = pd.concat([df_main, df_new_save], ignore_index=True)
-    return df_combined, rows_before, len(df_combined)
-
-
-def build_automotriz_xlsx(df_combined: pd.DataFrame, automotriz_bytes: bytes) -> bytes:
-    """
-    Genera bytes de automotriz.xlsx con Investment Raw data actualizado,
-    preservando las demás hojas del archivo original.
-    """
-    from openpyxl import load_workbook
-
-    # Cargar workbook original para conservar otras hojas
-    wb = load_workbook(io.BytesIO(automotriz_bytes))
-
-    # Eliminar hoja que vamos a reemplazar
-    if "Investment Raw data" in wb.sheetnames:
-        del wb["Investment Raw data"]
-
-    # Crear la hoja con pandas y copiar al workbook
-    buf_tmp = io.BytesIO()
-    with pd.ExcelWriter(buf_tmp, engine="openpyxl") as wr:
-        df_combined.to_excel(wr, sheet_name="Investment Raw data", index=False)
-    wb_tmp = load_workbook(buf_tmp)
-    ws_new = wb_tmp["Investment Raw data"]
-
-    # Mover la hoja nueva al workbook original (posición 0)
-    ws_copy = wb.create_sheet("Investment Raw data", 0)
-    for row in ws_new.iter_rows():
-        for cell in row:
-            ws_copy[cell.coordinate] = cell.value
-
-    out = io.BytesIO()
-    wb.save(out)
-    return out.getvalue()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ANÁLISIS Y GRÁFICAS
@@ -948,14 +901,14 @@ def main():
             st.session_state["mult"] = DEFAULT_MULT.copy()
         with st.expander("Ver / editar"):
             mult = st.session_state["mult"]
-            r1 = st.number_input("Radio M1",        value=mult["radio"][0],        step=0.01, format="%.2f")
-            r2 = st.number_input("Radio M2",        value=mult["radio"][1],        step=0.01, format="%.2f")
-            ta1= st.number_input("TV Abierta M1",   value=mult["tele_abierta"][0], step=0.01, format="%.2f")
-            ta2= st.number_input("TV Abierta M2",   value=mult["tele_abierta"][1], step=0.01, format="%.2f")
-            tp1= st.number_input("TV Paga/Local M1",value=mult["tele_paga"][0],    step=0.01, format="%.2f")
-            tp2= st.number_input("TV Paga/Local M2",value=mult["tele_paga"][1],    step=0.01, format="%.2f")
-            om = st.number_input("OOH MXN factor",  value=mult["ooh_mxn_factor"],  step=0.1,  format="%.1f")
-            of = st.number_input("OOH F30 factor",  value=mult["ooh_f30_factor"],  step=0.1,  format="%.2f")
+            r1 = st.number_input("Radio M1",         value=mult["radio"][0],        step=0.01, format="%.2f")
+            r2 = st.number_input("Radio M2",         value=mult["radio"][1],        step=0.01, format="%.2f")
+            ta1= st.number_input("TV Abierta M1",    value=mult["tele_abierta"][0], step=0.01, format="%.2f")
+            ta2= st.number_input("TV Abierta M2",    value=mult["tele_abierta"][1], step=0.01, format="%.2f")
+            tp1= st.number_input("TV Paga/Local M1", value=mult["tele_paga"][0],    step=0.01, format="%.2f")
+            tp2= st.number_input("TV Paga/Local M2", value=mult["tele_paga"][1],    step=0.01, format="%.2f")
+            om = st.number_input("OOH MXN factor",   value=mult["ooh_mxn_factor"],  step=0.1,  format="%.1f")
+            of = st.number_input("OOH F30 factor",   value=mult["ooh_f30_factor"],  step=0.1,  format="%.2f")
             if st.button("Guardar multiplicadores"):
                 st.session_state["mult"] = {
                     "radio": (r1, r2), "tele_abierta": (ta1, ta2),
@@ -966,52 +919,7 @@ def main():
 
     mult = st.session_state.get("mult", DEFAULT_MULT)
 
-    # ── Upload automotriz.xlsx ─────────────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("### 1. Sube automotriz.xlsx")
-    automotriz_file = st.file_uploader(
-        "automotriz.xlsx",
-        type=["xlsx"],
-        key="automotriz_file",
-        label_visibility="collapsed",
-    )
-
-    if not automotriz_file:
-        st.caption("Sube automotriz.xlsx para continuar.")
-        st.stop()
-
-    automotriz_bytes = automotriz_file.read()
-
-    # ── Upload archivos fuente ─────────────────────────────────────────────────
-    st.markdown("### 2. Sube archivos de inversión")
-
-    tab_gwm, tab_jac, tab_kvk = st.tabs(["GWM", "JAC", "KAVAK · BAIC · Industria"])
-    with tab_gwm:
-        files_gwm = st.file_uploader(
-            "Archivos GWM",
-            type=["xlsx","xls"], accept_multiple_files=True, key="gwm_files",
-            label_visibility="collapsed",
-        )
-    with tab_jac:
-        files_jac = st.file_uploader(
-            "Archivos JAC",
-            type=["xlsx","xls"], accept_multiple_files=True, key="jac_files",
-            label_visibility="collapsed",
-        )
-    with tab_kvk:
-        files_kvk = st.file_uploader(
-            "Archivos KAVAK / BAIC / Industria",
-            type=["xlsx","xls"], accept_multiple_files=True, key="kvk_files",
-            label_visibility="collapsed",
-        )
-
-    all_files = (files_gwm or []) + (files_jac or []) + (files_kvk or [])
-    if not all_files:
-        st.caption("Sube al menos un archivo de inversión para continuar.")
-        st.stop()
-
-    # ── Mes / Año ───────────────────────────────────────────────────────────────
-    st.markdown("### 3. Selecciona periodo")
+    # ── Mes / Año ─────────────────────────────────────────────────────────────
     col_m, col_y, _ = st.columns([2, 2, 6])
     with col_m:
         mes_num = st.selectbox(
@@ -1029,6 +937,44 @@ def main():
         else pd.Period(f"{anio-1}-12", freq="M")
     )
 
+    # ── Upload archivos fuente ─────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### Archivos de inversión")
+
+    tab_gwm, tab_jac, tab_kv, tab_baic, tab_ind = st.tabs(
+        ["GWM", "JAC", "KAVAK", "BAIC", "Industria"]
+    )
+    with tab_gwm:
+        files_gwm = st.file_uploader(
+            "GWM", type=["xlsx","xls"], accept_multiple_files=True,
+            key="gwm_files", label_visibility="collapsed",
+        )
+    with tab_jac:
+        files_jac = st.file_uploader(
+            "JAC", type=["xlsx","xls"], accept_multiple_files=True,
+            key="jac_files", label_visibility="collapsed",
+        )
+    with tab_kv:
+        files_kavak = st.file_uploader(
+            "KAVAK", type=["xlsx","xls"], accept_multiple_files=True,
+            key="kavak_files", label_visibility="collapsed",
+        )
+    with tab_baic:
+        files_baic = st.file_uploader(
+            "BAIC", type=["xlsx","xls"], accept_multiple_files=True,
+            key="baic_files", label_visibility="collapsed",
+        )
+    with tab_ind:
+        files_ind = st.file_uploader(
+            "Industria", type=["xlsx","xls"], accept_multiple_files=True,
+            key="ind_files", label_visibility="collapsed",
+        )
+
+    all_files = (files_gwm or []) + (files_jac or []) + (files_kavak or []) + (files_baic or []) + (files_ind or [])
+    if not all_files:
+        st.caption("Sube al menos un archivo para continuar.")
+        st.stop()
+
     # ── Botones ────────────────────────────────────────────────────────────────
     st.markdown("---")
     col_btn, col_re = st.columns([3, 1])
@@ -1038,79 +984,46 @@ def main():
         re_run = st.button("Volver a correr", use_container_width=True)
 
     if re_run:
-        for key in ["results_df", "df_combined", "automotriz_updated"]:
-            st.session_state.pop(key, None)
+        st.session_state.pop("results_df", None)
         st.rerun()
 
     if run_btn or st.session_state.get("results_df") is not None:
         if run_btn:
-            # Procesar
             show_car_animation()
             prog = st.progress(0, text="Procesando GWM...")
-            df_gwm = process_gwm(files_gwm or [], periods, mult)
-            prog.progress(33, text="Procesando JAC...")
-            df_jac = process_jac(files_jac or [], periods, mult)
-            prog.progress(66, text="Procesando KAVAK / BAIC...")
-            df_kvk = process_kavak_baic_industria(files_kvk or [], periods, mult)
+            df_gwm   = process_gwm(files_gwm or [], periods, mult)
+            prog.progress(20, text="Procesando JAC...")
+            df_jac   = process_jac(files_jac or [], periods, mult)
+            prog.progress(40, text="Procesando KAVAK...")
+            df_kavak = process_kavak_baic_industria(files_kavak or [], periods, mult, grupo_fijo="KAVAK")
+            prog.progress(60, text="Procesando BAIC...")
+            df_baic  = process_kavak_baic_industria(files_baic or [], periods, mult, grupo_fijo="BAIC")
+            prog.progress(80, text="Procesando Industria...")
+            df_ind   = process_kavak_baic_industria(files_ind or [], periods, mult, grupo_fijo=None)
             prog.progress(100, text="Listo")
             prog.empty()
 
-            df_all = pd.concat([df_gwm, df_jac, df_kvk], ignore_index=True)
+            df_all = pd.concat([df_gwm, df_jac, df_kavak, df_baic, df_ind], ignore_index=True)
             if df_all.empty:
                 st.warning("No se encontraron datos para el periodo seleccionado.")
                 st.stop()
 
             st.session_state["results_df"] = df_all
 
-            # Combinar con automotriz en memoria
-            try:
-                df_combined, rb, ra = merge_with_automotriz(df_all, automotriz_bytes)
-                st.session_state["df_combined"]       = df_combined
-                st.session_state["rows_added"]        = ra - rb
-                st.session_state["automotriz_updated"] = build_automotriz_xlsx(df_combined, automotriz_bytes)
-            except Exception as e:
-                st.session_state["df_combined"]  = None
-                st.session_state["merge_error"]  = str(e)
-
         # ── Resultados ────────────────────────────────────────────────────────
         df_all = st.session_state["results_df"]
+        df_all["Año-mes"] = pd.to_datetime(df_all["Año-mes"], errors="coerce")
 
-        # Conteo por fuente
-        st.markdown("---")
         counts = df_all["Fuente"].value_counts()
-        total_rows = len(df_all)
-        added = st.session_state.get("rows_added", total_rows)
-
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Registros nuevos", f"{total_rows:,}")
-        col2.metric("Online",  f"{counts.get('Online',0):,}")
-        col3.metric("Offline", f"{counts.get('Offline',0):,}")
-        col4.metric("OOH",     f"{counts.get('OOH',0):,}")
+        col1.metric("Registros", f"{len(df_all):,}")
+        col2.metric("Online",    f"{counts.get('Online',0):,}")
+        col3.metric("Offline",   f"{counts.get('Offline',0):,}")
+        col4.metric("OOH",       f"{counts.get('OOH',0):,}")
 
-        if st.session_state.get("automotriz_updated"):
-            ts_label = f"{calendar.month_abbr[mes_num]}{anio}"
-            st.success(f"{added:,} filas nuevas incluidas en el archivo.")
-            st.download_button(
-                "Descargar automotriz actualizado",
-                data=st.session_state["automotriz_updated"],
-                file_name=f"automotriz_{ts_label}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary",
-            )
-        elif "merge_error" in st.session_state:
-            st.error(f"Error al combinar: {st.session_state['merge_error']}")
-
-        # df para análisis: usar el combinado si existe, si no solo los nuevos
-        df_main = st.session_state.get("df_combined")
-        if df_main is None:
-            df_main = df_all.copy()
-
-        df_main["Año-mes"] = pd.to_datetime(df_main["Año-mes"], errors="coerce")
-
-        # ── Métricas ──────────────────────────────────────────────────────────
+        # ── Métricas de inversión ──────────────────────────────────────────────
         st.markdown("---")
-        st.markdown("#### Inversión total acumulada en automotriz.xlsx")
-        met = metrics_row(df_main)
+        met = metrics_row(df_all)
         cols = st.columns(5)
         for col_w, (k, v) in zip(cols, met.items()):
             col_w.markdown(
@@ -1119,9 +1032,9 @@ def main():
                 unsafe_allow_html=True,
             )
 
-        # ── Gráfica por año ───────────────────────────────────────────────────
+        # ── Gráfica (mes procesado + 2025 hardcodeado) ────────────────────────
         st.markdown("---")
-        chart_year = st.session_state.get("chart_year", 2026)
+        chart_year = st.session_state.get("chart_year", anio)
         c1, c2, _ = st.columns([1, 1, 8])
         with c1:
             if st.button("2026", type="primary" if chart_year == 2026 else "secondary"):
@@ -1132,7 +1045,7 @@ def main():
                 st.session_state["chart_year"] = 2025
                 st.rerun()
 
-        chart_df = build_chart_data(df_main, chart_year)
+        chart_df = build_chart_data(df_all, chart_year)
         st.plotly_chart(
             make_stacked_bar(chart_df, f"Inversión por fuente – {chart_year}"),
             use_container_width=True,
@@ -1143,44 +1056,35 @@ def main():
         tab_total, tab_gwm_r, tab_jac_r, tab_kvk_r, tab_baic_r = st.tabs(
             ["Total", "GWM", "JAC", "KAVAK", "BAIC"]
         )
-
         all_grupos = GWM_GRUPOS | JAC_GRUPOS | KAVAK_GRUPOS | BAIC_GRUPOS
 
         def render_tab(grupos, label):
-            bt = brand_table(df_main, grupos, period_curr, period_prev)
+            bt = brand_table(df_all, grupos, period_curr, period_prev)
             st.dataframe(bt, use_container_width=True, hide_index=True)
-            sub = df_main[df_main["#Grupo"].str.upper().isin({g.upper() for g in grupos})].copy()
+            sub = df_all[df_all["#Grupo"].str.upper().isin({g.upper() for g in grupos})].copy()
             cdf = build_chart_data(sub, chart_year)
             if cdf[["Online","Offline","OOH"]].sum().sum() > 0:
-                st.plotly_chart(
-                    make_stacked_bar(cdf, f"{label} – {chart_year}"),
-                    use_container_width=True,
-                )
+                st.plotly_chart(make_stacked_bar(cdf, f"{label} – {chart_year}"), use_container_width=True)
 
-        with tab_total:
-            render_tab(all_grupos, "Total industria")
-        with tab_gwm_r:
-            render_tab(GWM_GRUPOS, "GWM")
-        with tab_jac_r:
-            render_tab(JAC_GRUPOS, "JAC")
-        with tab_kvk_r:
-            render_tab(KAVAK_GRUPOS, "KAVAK")
-        with tab_baic_r:
-            render_tab(BAIC_GRUPOS, "BAIC")
+        with tab_total:  render_tab(all_grupos,   "Total industria")
+        with tab_gwm_r:  render_tab(GWM_GRUPOS,   "GWM")
+        with tab_jac_r:  render_tab(JAC_GRUPOS,   "JAC")
+        with tab_kvk_r:  render_tab(KAVAK_GRUPOS, "KAVAK")
+        with tab_baic_r: render_tab(BAIC_GRUPOS,  "BAIC")
 
-        # ── Exportar ──────────────────────────────────────────────────────────
+        # ── Descargar ─────────────────────────────────────────────────────────
         st.markdown("---")
-        st.markdown("#### Exportar datos procesados")
-        ecol1, ecol2, _ = st.columns([2, 2, 6])
         ts_label = f"{calendar.month_abbr[mes_num]}{anio}"
-        with ecol1:
+        dcol1, dcol2, _ = st.columns([2, 2, 6])
+        with dcol1:
             st.download_button(
-                "Descargar XLSX (solo nuevos)",
+                "Descargar XLSX",
                 data=export_xlsx(df_all),
-                file_name=f"nuevos_{ts_label}.xlsx",
+                file_name=f"inv_{ts_label}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
             )
-        with ecol2:
+        with dcol2:
             st.download_button(
                 "Descargar CSV (Power BI)",
                 data=export_csv(df_all),

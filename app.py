@@ -343,7 +343,7 @@ elif marca_seleccionada == "Dashboard Global":
 
                     # GWM: Unificar 
                     if v in ["GWM", "GREAT WALL MOTOR", "GREAT WALL MOTOR MEX", "GWM Great Wall Motors", "GWM MEXICO", "HAVAL"]:
-                        return "GWM"
+                        return "GWM MEXICO"
                         
                     # Chirey: Unificar las marcas
                     if v in ["CHERY", "CHIREY", "Chirey Motor", "CHIREY MOTOR MEXICO", "JETOUR MEXICO", "JAECOO", "OMODA", "OMODA+JAECOO"]:

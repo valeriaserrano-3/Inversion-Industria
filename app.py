@@ -141,7 +141,7 @@ with st.sidebar:
     st.header("Configuración")
     marca_seleccionada = st.selectbox(
         "¿Qué marca vas a procesar hoy?",
-        ["GWM", "JAC", "KAVAK", "INDUSTRIA (HR)", "ADMETRICKS"]
+        ["GWM", "JAC", "KAVAK", "INDUSTRIA (HR)", "ADMETRICKS", "OOH"]
     )
     st.divider()
     st.info("El archivo resultante tendrá el formato de 'automotriz.xlsx'")
@@ -426,6 +426,84 @@ elif marca_seleccionada == "ADMETRICKS":
 
         except Exception as e:
             st.error(f"Error al procesar Admetricks: {e}")
+
+# --- BLOQUE OOH ---
+elif marca_seleccionada == "OOH":
+    st.subheader("🏢 Panel OOH (Publicidad Exterior)")
+    st.info("Sube los reportes de OOH (XLSX o CSV). El sistema detectará si es un formato de Marca o Distribuidor.")
+
+    f_ooh = st.file_uploader("Subir archivo OOH", type=['xlsx', 'csv'], key="ooh_uploader")
+
+    if f_ooh and st.button("Procesar OOH"):
+        try:
+            # 1. Leer archivo según extensión
+            if f_ooh.name.endswith('.csv'):
+                df_ooh = pd.read_csv(f_ooh)
+            else:
+                # Leemos sin encabezados primero para detectar el formato (como en tu script)
+                df_raw = pd.read_excel(f_ooh, header=None)
+                
+                # Detectar si es Formato A (Filtros en fila 0) o Formato B (Pivot)
+                primer_celda = str(df_raw.iloc[0, 0])
+                if "Filtros aplicados" in primer_celda:
+                    df_ooh = pd.read_excel(f_ooh, skiprows=2) # Formato detallado
+                else:
+                    df_ooh = pd.read_excel(f_ooh, skiprows=1) # Formato Pivot
+
+            # Limpiar columnas
+            df_ooh.columns = [str(c).strip() for c in df_ooh.columns]
+
+            # 2. Transformación al layout maestro
+            res_ooh = pd.DataFrame()
+            
+            # Normalización de Marca (Grupo)
+            res_ooh['#Grupo'] = df_ooh['Marca'].str.upper()
+            res_ooh['Fuente'] = 'OOH'
+            
+            # Manejo de Fecha (Año-Mes)
+            if 'Año-Mes' in df_ooh.columns:
+                res_ooh['Año-mes'] = pd.to_datetime(df_ooh['Año-Mes'], errors='coerce')
+            elif 'Mes' in df_ooh.columns:
+                # Si solo viene el mes, asumimos año actual
+                res_ooh['Año-mes'] = df_ooh['Mes'].apply(lambda x: pd.to_datetime(f"2026-{x}-01", errors='coerce'))
+            else:
+                res_ooh['Año-mes'] = pd.Timestamp.now().replace(day=1)
+
+            res_ooh['Año'] = res_ooh['Año-mes'].dt.year
+
+            # Inversión (Costo) y Factor 1.3
+            costo_col = next((c for c in df_ooh.columns if 'COSTO' in c.upper() or 'SUMA' in c.upper()), None)
+            if costo_col:
+                inv_raw = pd.to_numeric(df_ooh[costo_col], errors='coerce').fillna(0)
+                res_ooh['Inversión (MXN)'] = inv_raw
+                res_ooh['Inversión F30'] = inv_raw * 1.3
+            
+            # Modelo y Medio
+            res_ooh['modelo'] = df_ooh.get('ProductoTag', 'INSTITUCIONAL').str.upper()
+            res_ooh['Producto'] = res_ooh['modelo']
+            
+            # Si es distribuidor, el medio es el Tipo de Publicidad (Vallas, etc.)
+            res_ooh['medio'] = df_ooh.get('TipoPublicidad', 'OOH GENÉRICO')
+            res_ooh['Categoría'] = 'OOH'
+
+            # Filtrar filas vacías o totales
+            final_ooh = res_ooh[res_ooh['Inversión (MXN)'] > 0].copy()
+            final_ooh = final_ooh[~final_ooh['#Grupo'].str.contains("TOTAL", na=False)]
+
+            if not final_ooh.empty:
+                final_df = final_ooh
+                st.success(f"✅ OOH procesado: {len(final_ooh)} registros encontrados.")
+                
+                # Resumen rápido
+                st.write("Inversión detectada por Marca:")
+                st.bar_chart(final_ooh.groupby('#Grupo')['Inversión (MXN)'].sum())
+                
+                st.dataframe(final_ooh.head())
+            else:
+                st.warning("No se encontraron datos válidos en el archivo.")
+
+        except Exception as e:
+            st.error(f"Error al procesar OOH: {e}")
             
             
 # ─────────────────────────────────────────────────────────────────────────────

@@ -357,7 +357,6 @@ elif marca_seleccionada == "INDUSTRIA (HR)":
 # --- BLOQUE ADMETRICKS ---
 elif marca_seleccionada == "ADMETRICKS":
     st.subheader("📊 Panel Admetricks")
-    st.info("Sube el reporte de Admetricks para normalizar marcas y aplicar el factor 1.3.")
 
     # 1. Configuración de Marca (Diccionario de normalización)
     BRAND_MAP = {

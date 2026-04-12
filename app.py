@@ -324,11 +324,13 @@ elif marca_seleccionada == "Dashboard Global":
                 def unificar_marcas_maestro(valor):
                     v = str(valor).upper().strip()
                     
-                    # Unificación de NISSAN (Todas sus variantes)
-                    if "NISSAN" in v: return "NISSAN"
+                   # NISSAN
+                    if "NISSAN MEXICANA" in v or "NISSAN MEXICO" in v: return "NISSAN MEXICO"
+                    if "NISSAN" in v: return "NISSAN" # Si no dice Mexicana/Mexico, se queda en Nissan
                     
-                    # Unificación de VOLKSWAGEN (VW, Volkswagen de Mexico, etc.)
-                    if "VOLKSWAGEN" in v or "VW" in v: return "VOLKSWAGEN"
+                    # VOLKSWAGEN
+                    if "VOLKSWAGEN DE MEXICO" in v or "VOLKSWAGEN MEXICO" in v: return "VOLKSWAGEN MEXICO"
+                    if "VOLKSWAGEN" in v or "VW" in v: return "VOLKSWAGEN" # VW unificado a VOLKSWAGEN
                     
                     # Unificación de GWM
                     if "GWM" in v: return "GWM MEXICO"

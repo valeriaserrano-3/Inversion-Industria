@@ -353,97 +353,98 @@ elif marca_seleccionada == "OOH":
             
         
 # --- BLOQUE DASHBOARD GLOBAL ---
-
 elif marca_seleccionada == "Dashboard Global":
     st.title("📊 Dashboard Estratégico 2026")
-    st.info("Filtro: Datos desde Enero 2026. Los meses se acumulan al subir archivos.")
+    st.info("Filtro: Datos desde Enero 2026. Los meses se acumulan en la sesión actual.")
 
-    # 1. MEMORIA PARA MESES (Evita que se borre Enero al subir Febrero)
-    if 'memoria_2026' not in st.session_state:
-        st.session_state.memoria_2026 = pd.DataFrame()
+    # 1. MEMORIA DE SESIÓN (ID Único para evitar conflictos)
+    if 'dg_memoria_historica' not in st.session_state:
+        st.session_state.dg_memoria_historica = pd.DataFrame()
 
     # --- DICCIONARIO DE MARCAS FOCO ---
-    GRUPOS_FOCO = {
+    DG_GRUPOS = {
         "GWM": ["GWM", "GWM MOTORS", "HAVAL", "TANK", "ORA", "POER", "WEY"],
         "JAC": ["JAC", "JAC MOTORS", "JAC INDUSTRIA"],
         "KAVAK": ["KAVAK"],
         "BAIC": ["BAIC", "JMC", "MOTORNATION"]
     }
-    todas_foco = [m for sub in GRUPOS_FOCO.values() for m in sub]
+    dg_todas_foco = [m for sub in DG_GRUPOS.values() for m in sub]
 
-    # Cargador con KEY ÚNICA para evitar el error de la captura
-    f_master = st.file_uploader("Subir Reporte (Ene, Feb, Mar...)", type=['xlsx', 'csv'], key="cargador_global_2026")
+    # CARGADOR DE ARCHIVOS (Key única para evitar el error de ID duplicado)
+    dg_archivo = st.file_uploader("Subir Reporte (Ene, Feb, Mar...)", type=['xlsx', 'csv'], key="dg_uploader_file_2026")
 
-    if f_master:
-        # Leer archivo (skiprows=3 es el que te funcionó en los anteriores)
-        df_raw = pd.read_excel(f_master, skiprows=3) if f_master.name.endswith('.xlsx') else pd.read_csv(f_master, skiprows=3)
-        df_raw.columns = [str(c).strip() for c in df_raw.columns]
+    if dg_archivo:
+        # Leer archivo con el salto de filas que te funcionó (skiprows=3)
+        if dg_archivo.name.endswith('.csv'):
+            dg_df_raw = pd.read_csv(dg_archivo)
+        else:
+            dg_df_raw = pd.read_excel(dg_archivo, skiprows=3)
         
-        # Buscar columna de marca y meses
-        marca_col = next((c for c in df_raw.columns if c.lower() in ['brand', 'marca']), None)
-        cols_2026 = [c for c in df_raw.columns if '26' in c]
+        dg_df_raw.columns = [str(c).strip() for c in dg_df_raw.columns]
+        
+        # Identificar columnas
+        dg_col_marca = next((c for c in dg_df_raw.columns if c.lower() in ['brand', 'marca']), None)
+        dg_cols_2026 = [c for c in dg_df_raw.columns if '26' in c]
 
-        if marca_col and cols_2026:
-            # Limpiar filas vacías o totales
-            df_raw = df_raw[df_raw[marca_col].notna()]
-            df_raw = df_raw[~df_raw[marca_col].str.contains('Total|Share', case=False, na=False)]
+        if dg_col_marca and dg_cols_2026:
+            # Limpieza básica
+            dg_df_raw = dg_df_raw[dg_df_raw[dg_col_marca].notna()]
+            dg_df_raw = dg_df_raw[~dg_df_raw[dg_col_marca].str.contains('Total|Share', case=False, na=False)]
 
-            # Convertir a formato vertical (Melt)
-            df_melt = df_raw.melt(id_vars=[marca_col], value_vars=cols_2026, var_name='Mes', value_name='Inversión')
-            df_melt['Inversión'] = pd.to_numeric(df_melt['Inversión'], errors='coerce').fillna(0)
+            # Formato vertical
+            dg_melt = dg_df_raw.melt(id_vars=[dg_col_marca], value_vars=dg_cols_2026, var_name='Mes', value_name='Inversión')
+            dg_melt['Inversión'] = pd.to_numeric(dg_melt['Inversión'], errors='coerce').fillna(0)
 
-            # --- NORMALIZACIÓN DE MEDIOS (Billboards -> OOH) ---
-            def categorizar_rapido(x):
-                val = str(x).upper()
-                if any(kw in val for kw in ['BILLBOARD', 'BUS', 'OOH', 'VALLA', 'EXTERIOR', 'MUPI']): return 'OOH'
-                if any(kw in val for kw in ['DIGITAL', 'SOCIAL', 'FACEBOOK', 'GOOGLE', 'WEB']): return 'DIGITAL'
+            # --- MAPEO DE MEDIOS (Billboards/Buses -> OOH) ---
+            def dg_mapear_medio(x):
+                v = str(x).upper()
+                if any(kw in v for kw in ['BILLBOARD', 'BUS', 'OOH', 'VALLA', 'EXTERIOR', 'MUPI']): return 'OOH'
+                if any(kw in v for kw in ['DIGITAL', 'SOCIAL', 'FACEBOOK', 'GOOGLE', 'WEB']): return 'DIGITAL'
                 return 'OTROS'
 
-            df_melt['Medio_Limpio'] = df_melt[marca_col].apply(categorizar_rapido)
+            dg_melt['Categoria_Medio'] = dg_melt[dg_col_marca].apply(dg_mapear_medio)
             
-            # Guardar en memoria y quitar duplicados
-            st.session_state.memoria_2026 = pd.concat([st.session_state.memoria_2026, df_melt]).drop_duplicates()
-            st.success("✅ Datos integrados al historial.")
+            # Acumular en memoria
+            st.session_state.dg_memoria_historica = pd.concat([st.session_state.dg_memoria_historica, dg_melt]).drop_duplicates()
+            st.success("✅ Datos agregados correctamente.")
         else:
-            st.error("No se detectó la columna 'Brand' o meses de '26'.")
+            st.error("No se encontró la columna 'Brand' o meses de '2026'.")
 
     # --- MOSTRAR RESULTADOS ---
-    if not st.session_state.memoria_2026.empty:
-        df_hist = st.session_state.memoria_2026.copy()
+    if not st.session_state.dg_memoria_historica.empty:
+        dg_final = st.session_state.dg_memoria_historica.copy()
         
-        # Tabs con keys únicas internas
-        t1, t2 = st.tabs(["🎯 Marcas Foco", "🌐 Industria Total"])
+        # Usamos nombres de Tabs únicos
+        dg_tab_foco, dg_tab_total = st.tabs(["🎯 Mis Marcas", "🌐 Toda la Industria"])
 
-        with t1:
-            df_f = df_hist[df_hist[marca_col].str.upper().isin(todas_foco)]
-            if not df_f.empty:
-                # Matriz Marca vs Mes
-                st.write("### 🏢 Inversión por Marca y Mes")
-                piv_f = df_f.pivot_table(index=marca_col, columns='Mes', values='Inversión', aggfunc='sum', fill_value=0)
-                st.dataframe(piv_f.style.format("${:,.2f}"), use_container_width=True)
+        with dg_tab_foco:
+            dg_df_f = dg_final[dg_final[dg_col_marca].str.upper().isin(dg_todas_foco)]
+            if not dg_df_f.empty:
+                st.write("### Matriz: Marca vs Mes")
+                dg_piv_f = dg_df_f.pivot_table(index=dg_col_marca, columns='Mes', values='Inversión', aggfunc='sum', fill_value=0)
+                st.dataframe(dg_piv_f.style.format("${:,.2f}"), use_container_width=True)
 
-                # Gráfica Apilada por Medio
                 import altair as alt
-                st.write("### 📈 Composición por Medio (Apilada)")
-                chart = alt.Chart(df_f).mark_bar().encode(
+                st.write("### Composición Mensual (OOH vs Digital)")
+                dg_chart = alt.Chart(dg_df_f).mark_bar().encode(
                     x=alt.X('Mes:O', sort='ascending'),
-                    y=alt.Y('sum(Inversión):Q', title="Inversión Total"),
-                    color=alt.Color('Medio_Limpio:N', title="Medio"),
-                    tooltip=[marca_col, 'Mes', alt.Tooltip('Inversión', format="$,.2f")]
+                    y=alt.Y('sum(Inversión):Q', title="Inversión"),
+                    color=alt.Color('Categoria_Medio:N', title="Medio"),
+                    tooltip=[dg_col_marca, 'Mes', alt.Tooltip('Inversión', format="$,.2f")]
                 ).properties(height=350)
-                st.altair_chart(chart, use_container_width=True)
+                st.altair_chart(dg_chart, use_container_width=True)
             else:
-                st.info("No hay datos de GWM, JAC, KAVAK o BAIC aún.")
+                st.info("No se encontraron datos para tus marcas foco en este archivo.")
 
-        with t2:
-            st.write("### Top 20 Mercado General")
-            piv_gen = df_hist.pivot_table(index=marca_col, columns='Mes', values='Inversión', aggfunc='sum', fill_value=0)
-            piv_gen['Total'] = piv_gen.sum(axis=1)
-            st.dataframe(piv_gen.sort_values('Total', ascending=False).head(20).style.format("${:,.2f}"), use_container_width=True)
+        with dg_tab_total:
+            st.write("### Top 20 Industria")
+            dg_piv_gen = dg_final.pivot_table(index=dg_col_marca, columns='Mes', values='Inversión', aggfunc='sum', fill_value=0)
+            dg_piv_gen['Total'] = dg_piv_gen.sum(axis=1)
+            st.dataframe(dg_piv_gen.sort_values('Total', ascending=False).head(20).style.format("${:,.2f}"), use_container_width=True)
 
-    # Botón de reset con KEY ÚNICA
-    if st.sidebar.button("🗑️ Borrar Histórico 2026", key="btn_reset_global"):
-        st.session_state.memoria_2026 = pd.DataFrame()
+    # Botón de Reset con ID Único
+    if st.sidebar.button("🗑️ Resetear Dashboard Global", key="dg_btn_reset_unique"):
+        st.session_state.dg_memoria_historica = pd.DataFrame()
         st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────

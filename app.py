@@ -323,17 +323,17 @@ elif marca_seleccionada == "Dashboard Global":
                 # --- 2. LÓGICA DE UNIFICACIÓN AGRESIVA POR PALABRA CLAVE ---
                 def unificar_marcas_maestro(valor):
                     v = str(valor).upper().strip()
+            
+                   # Solo unifica si es exactamente Nissan o sus variantes de país
+                    if v in ["NISSAN", "NISSAN MEXICO"]:
+                        return "NISSAN"
                     
-                   # NISSAN
-                    if "NISSAN MEXICANA" in v or "NISSAN MEXICO" in v: return "NISSAN MEXICO"
-                    if "NISSAN" in v: return "NISSAN" # Si no dice Mexicana/Mexico, se queda en Nissan
-                    
-                    # VOLKSWAGEN
-                    if "VOLKSWAGEN DE MEXICO" in v or "VOLKSWAGEN MEXICO" in v: return "VOLKSWAGEN MEXICO"
-                    if "VOLKSWAGEN" in v or "VW" in v: return "VOLKSWAGEN" # VW unificado a VOLKSWAGEN
+                    # Solo unifica si es exactamente Volkswagen o sus variantes de país
+                    if v in ["VOLKSWAGEN", "VOLKSWAGEN MEXICO"]:
+                        return "VOLKSWAGEN"
                     
                     # Unificación de GWM
-                    if "GWM" in v: return "GWM MEXICO"
+                    if "GWM" in v: return "GWM"
                     
                     # Unificación de CHANGAN
                     if "CHANGAN" in v: return "CHANGAN MEXICO"

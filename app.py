@@ -141,7 +141,8 @@ with st.sidebar:
     st.header("Configuración")
     marca_seleccionada = st.selectbox(
         "¿Qué marca vas a procesar hoy?",
-        ["GWM", "JAC", "KAVAK", "INDUSTRIA (HR)", "ADMETRICKS", "OOH", "Dashboard Global"]
+        ["Dashboard Global"]
+        #["GWM", "JAC", "KAVAK", "INDUSTRIA (HR)", "ADMETRICKS", "OOH", "Dashboard Global"]
     )
     st.divider()
     st.info("El archivo resultante tendrá el formato de 'automotriz.xlsx'")

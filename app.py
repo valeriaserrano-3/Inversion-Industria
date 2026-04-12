@@ -375,7 +375,6 @@ elif marca_seleccionada == "KAVAK":
             
         
 # --- BLOQUE DASHBOARD GLOBAL ---
-
 elif marca_seleccionada == "Dashboard Global":
         st.title("📊 Dashboard Estratégico 2026")
         st.info("💡 Control de duplicados activo: Los montos se actualizan por mes para evitar sumas erróneas.")

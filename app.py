@@ -345,9 +345,9 @@ elif marca_seleccionada == "Dashboard Global":
                     if "JAC INDUSTRIA" in v: return "JAC INDUSTRIA"
                     if "JAC" in v: return "JAC"
                     
-                   # CHEVROLET / GM: Unificar para evitar el salto de 59 a 109
-                    if v in ["CHEVROLET"]:
-                        return "CHEVROLET"
+                   # CHEVROLET: Evitar que sume doble (GM + Chevrolet)
+                   if v in ["CHEVROLET", "GENERAL MOTORS", "GM"]:
+                   return "CHEVROLET"
                     
                     # Respaldo para otras marcas del catálogo
                     if "HYUNDAI" in v: return "HYUNDAI"

@@ -293,7 +293,7 @@ elif marca_seleccionada == "OOH":
         st.success("✅ OOH Procesado.")
 
 # --- BLOQUE DASHBOARD GLOBAL CORREGIDO (GRÁFICA SIN DUPLICADOS) ---
- elif marca_seleccionada == "Dashboard Global":
+elif marca_seleccionada == "Dashboard Global":
     st.title("📊 Dashboard Estratégico 2026")
     
     if 'dg_memoria_historica' not in st.session_state:

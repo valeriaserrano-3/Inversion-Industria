@@ -293,21 +293,22 @@ elif marca_seleccionada == "OOH":
         st.success("✅ OOH Procesado.")
 
 # --- BLOQUE DASHBOARD GLOBAL CORREGIDO (GRÁFICA SIN DUPLICADOS) ---
+# --- BLOQUE DASHBOARD GLOBAL CON UNIFICACIÓN REFORZADA ---
 elif marca_seleccionada == "Dashboard Global":
     st.title("📊 Dashboard Estratégico 2026")
     
     if 'dg_memoria_historica' not in st.session_state:
         st.session_state.dg_memoria_historica = pd.DataFrame()
 
-    # LISTA DE MARCAS EXACTAS (Ajustadas a tu archivo)
+    # CATALOGO MAESTRO
     GRUPOS_VISTAS = {
-        "GWM": ["GWM MEXICO", "NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", "KIA", "GEELY", "CHIREY", "MG", "GAC", "TOYOTA", "CHANGAN", "EXEED"],
-        "JAC": ["JAC", "JAC INDUSTRIA", "BYD", "NISSAN", "RAM", "CHEVROLET", "VOLKSWAGEN", "KIA", "HYUNDAI", "GEELY", "CHIREY", "RENAULT", "HONDA", "FORD", "MITSUBISHI", "MG", "TOYOTA", "PEUGEOT", "GAC", "SUZUKI", "CHANGAN", "SEAT", "MAZDA", "FOTON", "JETOUR"],
+        "GWM": ["GWM MEXICO", "NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", "KIA", "GEELY", "CHIREY", "MG", "GAC", "TOYOTA", "CHANGAN MEXICO", "EXEED"],
+        "JAC": ["JAC", "JAC INDUSTRIA", "BYD", "NISSAN", "RAM", "CHEVROLET", "VOLKSWAGEN", "KIA", "HYUNDAI", "GEELY", "CHIREY", "RENAULT", "HONDA", "FORD", "MITSUBISHI", "MG", "TOYOTA", "GWM MEXICO", "PEUGEOT", "GAC", "SUZUKI", "CHANGAN MEXICO", "SEAT", "MAZDA", "FOTON", "JETOUR"],
         "KAVAK": ["KAVAK", "NISSAN", "GENERAL MOTORS", "HYUNDAI", "VOLKSWAGEN", "KIA", "MITSUBISHI", "FORD MOTOR", "GEELY", "JEEP", "INFINITI", "PEUGEOT", "CHIREY", "RENAULT", "TOYOTA", "MG", "BBVA AUTOMARKET", "HONDA"],
-        "BAIC": ["BAIC", "MOTORNATION", "MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", "JETOUR", "CHANGAN", "JAC"]
+        "BAIC": ["BAIC", "MOTORNATION", "MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", "JETOUR", "CHANGAN MEXICO", "JAC"]
     }
     
-    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_final_fix_exact")
+    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_unificador_v2")
 
     if dg_archivo:
         try:
@@ -317,18 +318,30 @@ elif marca_seleccionada == "Dashboard Global":
             if '#Grupo' in df_raw.columns:
                 df_temp = df_raw.copy()
                 
-                # 1. Limpieza de nombres (Solo quitar espacios, no agrupar "Motors" con "Mexico")
-                df_temp['Marca_Final'] = df_temp['#Grupo'].astype(str).str.strip().str.upper()
-                
-                # 2. Procesar Montos (La única columna de inversión)
+                # --- SECCIÓN DE UNIFICACIÓN REFORZADA ---
+                def unificar_marcas_industria(txt):
+                    n = str(txt).upper().strip()
+                    # Si contiene la palabra, unificamos al nombre oficial del catálogo
+                    if "GWM" in n: return "GWM MEXICO"
+                    if "NISSAN" in n: return "NISSAN"
+                    if "CHANGAN" in n: return "CHANGAN MEXICO"
+                    if "CHEVROLET" in n or "GENERAL MOTORS" in n: return "CHEVROLET"
+                    if "JAC INDUSTRIA" in n: return "JAC INDUSTRIA"
+                    if "JAC" in n: return "JAC"
+                    if "CHIREY" in n or "OMODA" in n or "JAECOO" in n: return "CHIREY"
+                    if "VOLKSWAGEN" in n: return "VOLKSWAGEN"
+                    if "HYUNDAI" in n: return "HYUNDAI"
+                    return n
+
+                df_temp['Marca_Final'] = df_temp['#Grupo'].apply(unificar_marcas_industria)
                 df_temp['Monto'] = pd.to_numeric(df_temp['Inversión (MXN)'], errors='coerce').fillna(0)
                 
-                # 3. Procesar Fecha (Formato 'feb2026)
+                # Procesar Fecha
                 df_temp['Mes_Raw'] = df_temp['Año-mes'].astype(str).str.replace("'", "").str.strip().str.lower()
                 mapa_meses = {'jan': 'Enero', 'feb': 'Febrero', 'mar': 'Marzo', 'apr': 'Abril', 'may': 'Mayo', 'jun': 'Junio'}
                 df_temp['Mes_Nombre'] = df_temp['Mes_Raw'].str[:3].map(mapa_meses).fillna("Desconocido")
                 
-                # 4. Clasificar Medios
+                # Clasificar Medios
                 def cat_medio(x):
                     v = str(x).upper()
                     if any(k in v for k in ['OOH', 'EXTERIOR', 'VALLA', 'MUPI', 'RELOJ', 'KIOSCO', 'COLUMNA', 'SITIO']): return 'OOH'
@@ -337,15 +350,14 @@ elif marca_seleccionada == "Dashboard Global":
                 df_temp['Medio_Final'] = df_temp['Fuente'].apply(cat_medio)
                 
                 st.session_state.dg_memoria_historica = df_temp
-                st.success("✅ Datos cargados correctamente.")
-
+                st.success("✅ Datos unificados (Nissan incluido).")
         except Exception as e:
             st.error(f"Error: {e}")
 
+    # --- RENDER ---
     if not st.session_state.dg_memoria_historica.empty:
         df_full = st.session_state.dg_memoria_historica
-        meses_lista = [m for m in df_full['Mes_Nombre'].unique() if m != "Desconocido"]
-        mes_sel = st.selectbox("📅 Selecciona el mes:", meses_lista)
+        mes_sel = st.selectbox("📅 Selecciona el mes:", [m for m in df_full['Mes_Nombre'].unique() if m != "Desconocido"])
         df_mes = df_full[df_full['Mes_Nombre'] == mes_sel]
         
         import altair as alt
@@ -353,7 +365,6 @@ elif marca_seleccionada == "Dashboard Global":
 
         for i, grupo in enumerate(GRUPOS_VISTAS.keys()):
             with tabs[i]:
-                # FILTRO EXACTO: Solo toma lo que está en la lista (e.g., GWM MEXICO sí, GWM Motors no)
                 marcas_ok = GRUPOS_VISTAS[grupo]
                 df_g = df_mes[df_mes['Marca_Final'].isin(marcas_ok)]
                 
@@ -371,16 +382,12 @@ elif marca_seleccionada == "Dashboard Global":
                     c3.metric("OFFLINE", f"${t_off:,.0f}")
                     c4.metric("OOH", f"${t_ooh:,.0f}")
                     
-                    # Gráfica Apilada
                     chart = alt.Chart(df_g).mark_bar(size=120).encode(
                         x=alt.X('Mes_Nombre:N', title="Mes"),
                         y=alt.Y('sum(Monto):Q', title="Inversión ($)"),
-                        color=alt.Color('Medio_Final:N', 
-                                       scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], 
-                                                       range=['#2471A3', '#D35400', '#28B463'])),
+                        color=alt.Color('Medio_Final:N', scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], range=['#2471A3', '#D35400', '#28B463'])),
                         tooltip=['Medio_Final', alt.Tooltip('sum(Monto)', format="$,.0f")]
                     ).properties(height=450)
-                    
                     st.altair_chart(chart, use_container_width=True)
 
                     st.write("### Detalle por Marca")

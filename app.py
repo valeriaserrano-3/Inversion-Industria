@@ -206,7 +206,6 @@ hr { border-color: #e2e2e2 !important; margin: 12px 0 !important; }
 .stCheckbox label { color: #555 !important; font-size: 0.84em !important; }
 .stAlert { border-radius: 4px !important; font-size: 0.82em !important; }
 
-/* st.pills — dia: blanco/negro sin seleccionar, rojo vino al seleccionar */
 [data-testid="stBaseButton-pills"] {
     background: #f5f5f5 !important;
     color: #555555 !important;
@@ -218,11 +217,9 @@ hr { border-color: #e2e2e2 !important; margin: 12px 0 !important; }
     border-color: #722F37 !important;
 }
 
-/* Pills de marca — dia */
 .brand-toggle-on  { display:inline-block; background:#111; color:#fff; border:1px solid #111; border-radius:4px; padding:3px 10px; font-size:11px; font-family:'IBM Plex Sans',sans-serif; font-weight:600; margin:2px; cursor:pointer; letter-spacing:.03em; }
 .brand-toggle-off { display:inline-block; background:#f4f4f4; color:#888; border:1px solid #ddd; border-radius:4px; padding:3px 10px; font-size:11px; font-family:'IBM Plex Sans',sans-serif; font-weight:400; margin:2px; cursor:pointer; letter-spacing:.03em; }
 
-/* Car — dia */
 .car-road { background: #f2f2f2 !important; border-color: #ddd !important; }
 .car-road-surface { background: #e4e4e4 !important; border-top-color: #ccc !important; }
 .car-road-dashes-anim, .car-road-dashes-static { background: repeating-linear-gradient(90deg, #99999966 0, #99999966 28px, transparent 28px, transparent 56px) !important; }
@@ -235,7 +232,6 @@ _CSS_DARK = """
 .stApp { background: #06080f !important; }
 section[data-testid="stSidebar"] { background: #08090f !important; border-right: 1px solid #151d2b !important; }
 
-/* Texto general — noche: todo blanco */
 p, label, li, td, th, small,
 .stMarkdown p, .stText, .stCaption,
 [data-testid="stWidgetLabel"] p,
@@ -292,7 +288,6 @@ hr { border-color: #151d2b !important; margin: 12px 0 !important; }
 .stCheckbox label { color: #ffffff !important; font-size: 0.84em !important; }
 .stAlert { border-radius: 4px !important; font-size: 0.82em !important; }
 
-/* st.pills — noche: fondo oscuro, seleccionado en teal */
 [data-testid="stBaseButton-pills"] {
     background: #0a1218 !important;
     color: #ffffff !important;
@@ -304,11 +299,9 @@ hr { border-color: #151d2b !important; margin: 12px 0 !important; }
     border-color: #00d4aa !important;
 }
 
-/* Pills de marca — noche */
 .brand-toggle-on  { display:inline-block; background:#00d4aa; color:#06080f; border:1px solid #00d4aa; border-radius:4px; padding:3px 10px; font-size:11px; font-family:'IBM Plex Sans',sans-serif; font-weight:700; margin:2px; cursor:pointer; letter-spacing:.03em; }
 .brand-toggle-off { display:inline-block; background:#0a1f18; color:#3a6a5a; border:1px solid #1e3a2e; border-radius:4px; padding:3px 10px; font-size:11px; font-family:'IBM Plex Sans',sans-serif; font-weight:400; margin:2px; cursor:pointer; letter-spacing:.03em; }
 
-/* Toolbar / Deploy — noche */
 [data-testid="stHeader"],
 [data-testid="stToolbar"],
 header[data-testid="stHeader"] {
@@ -321,7 +314,6 @@ header[data-testid="stHeader"] {
     color: #ffffff !important;
 }
 
-/* Car — noche */
 .car-road { background: #080c18 !important; border-color: #1a2535 !important; }
 .car-road-surface { background: #0d1520 !important; border-top-color: #1a2535 !important; }
 .car-road-dashes-anim, .car-road-dashes-static { background: repeating-linear-gradient(90deg, #00d4aa55 0, #00d4aa55 28px, transparent 28px, transparent 56px) !important; }
@@ -426,25 +418,22 @@ def sanitize(s: str, max_len: int = 50) -> str:
 
 
 def slug(s: str) -> str:
-    """Minúsculas sin acentos, espacios → guión bajo. Ej: 'Televisión' → 'television'."""
     s = unicodedata.normalize("NFD", str(s).lower())
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
     return re.sub(r"[^\w]", "_", s).strip("_")
 
 
 def get_save_folder(base: str, marca: str, month_folder: str) -> Path:
-    """Estructura: base / mes_año / marca / testigo"""
     folder = Path(base) / slug(month_folder) / slug(normalize_brand(marca))
-    # En macOS (case-insensitive) puede existir la carpeta en mayúsculas de corridas anteriores.
-    # Si hay una carpeta con el mismo nombre en distinto case, renombrarla.
-    if not folder.exists():
-        parent = folder.parent
-        if parent.exists():
-            for existing in parent.iterdir():
-                if existing.is_dir() and existing.name.lower() == folder.name and existing.name != folder.name:
-                    existing.rename(folder)
-                    break
-    folder.mkdir(parents=True, exist_ok=True)
+    target_name = folder.name
+    parent = folder.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    # macOS es case-insensitive: siempre revisar si hay variante en mayúsculas y renombrarla
+    for existing in parent.iterdir():
+        if existing.is_dir() and existing.name.lower() == target_name and existing.name != target_name:
+            existing.rename(folder)
+            break
+    folder.mkdir(exist_ok=True)
     return folder
 
 
@@ -507,10 +496,8 @@ def process_file(df, source, selected_brands, base_path, month_folder, prog_bar,
             "Advertisement", "Nombre de campaña", "Sitio web", "Formato"
         )
 
-    # Limpiar filas basura de OOH (totales, NaN, etc.)
     df = df[df["Marca"].notna()].copy()
     df = df[~df["Marca"].astype(str).str.strip().isin(["Total", "No se han aplicado filtros", "nan"])].copy()
-
     df = df[df["Marca"].apply(lambda x: brand_in_selection(x, selected_brands))].copy()
     df = df.drop_duplicates(subset=[url_col])
 
@@ -518,7 +505,6 @@ def process_file(df, source, selected_brands, base_path, month_folder, prog_bar,
     df["_medio_norm"] = df[medio_col].apply(normalize_medio) if medio_col in df.columns else "online"
 
     if source == "ooh":
-        # Muestreo aleatorio para OOH
         df = (
             df.groupby(["_marca_norm", "_medio_norm"], group_keys=False)
             .apply(lambda g: g.sample(min(MAX_PER_MEDIO, len(g)), random_state=None))
@@ -538,7 +524,7 @@ def process_file(df, source, selected_brands, base_path, month_folder, prog_bar,
     for i, (_, row) in enumerate(df.iterrows()):
         marca  = normalize_brand(row.get("Marca", ""))
         fuente = sanitize(row.get(fuente_col, "desconocido"))
-        medio  = normalize_medio(row.get(medio_col, "")) if medio_col in df.columns else "Online"
+        medio  = normalize_medio(row.get(medio_col, "")) if medio_col in df.columns else "online"
         fecha  = row.get("Fecha", datetime.now())
         url    = str(row.get(url_col, "")).strip()
 
@@ -592,7 +578,6 @@ def build_zip(base_path: str, month_folder: str) -> bytes | None:
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for file in sorted(target.rglob("*")):
             if file.is_file():
-                # Incluir carpeta mes como raíz: mes/MARCA/archivo
                 zf.write(file, Path(month_folder) / file.relative_to(target))
     buf.seek(0)
     return buf.read()
@@ -602,13 +587,11 @@ def build_zip(base_path: str, month_folder: str) -> bytes | None:
 
 st.set_page_config(page_title="Testigos Competencia", page_icon=None, layout="wide")
 
-# ── Inicializar session state ──
 if "theme_mode" not in st.session_state:
-    st.session_state.theme_mode = "◑"          # auto por defecto
+    st.session_state.theme_mode = "◑"
 if "brand_pills_widget" not in st.session_state:
     st.session_state["brand_pills_widget"] = BRANDS_LIST
 
-# ── Inyectar CSS segun tema ──
 theme_icon = st.session_state.theme_mode
 if theme_icon == "☀️":
     st.markdown(_CSS_BASE + _CSS_LIGHT, unsafe_allow_html=True)
@@ -619,14 +602,11 @@ else:
 
 st.title("Testigos — Competencia Automotriz")
 st.caption(
-    "Auditsa (revista · radio · tele · periodico)  +  Admetricks (online)"
+    "Auditsa (revista · radio · tv · periodico)  +  Admetricks (online)  +  OOH (exterior)"
     "  ·  Max. 3 testigos por medio por marca"
 )
 
-# ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
-
-    # Toggle de tema (arriba del todo)
     tema = st.segmented_control(
         "Tema",
         options=["☀️", "◑", "🌙"],
@@ -647,7 +627,6 @@ with st.sidebar:
         help="Ruta local de la carpeta Testigos Competencia",
     )
 
-    # ── Marcas competencia (pills nativos) ──
     st.divider()
     st.subheader("Marcas competencia")
 
@@ -672,7 +651,6 @@ with st.sidebar:
     if not selected_brands:
         st.warning("No hay marcas seleccionadas.")
 
-    # ── ZIP del mes ──
     st.divider()
     st.subheader("Descargar ZIP del mes")
 
@@ -707,12 +685,11 @@ with st.sidebar:
     else:
         st.info("Configura la carpeta raiz para ver los meses.")
 
-# ── Area principal ────────────────────────────────────────────────────────────
 st.subheader("Archivos a procesar")
 
 uploaded_files = st.file_uploader(
-    "Sube uno o mas archivos Excel (.xlsx) de Auditsa o Admetricks:",
-    type=["xlsx"],
+    "Sube uno o mas archivos Excel (.xlsx / .xlsm) de Auditsa, Admetricks u OOH:",
+    type=["xlsx", "xlsm"],
     accept_multiple_files=True,
     label_visibility="visible",
 )
@@ -723,9 +700,9 @@ if uploaded_files:
         "Nombre de la carpeta del mes:",
         value=default_folder,
         placeholder="ej. Marzo 2026",
-        help="Los testigos se guardaran en: Testigos Competencia / [nombre] / MARCA / testigo",
+        help="Los testigos se guardaran en: Testigos Competencia / [nombre] / marca / testigo",
     )
-    st.caption(f"Ruta: .../{month_folder.strip() or '?'}/MARCA/testigo.jpg")
+    st.caption(f"Ruta: .../{month_folder.strip() or '?'}/marca/testigo.jpg")
 
     if st.button("Procesar archivos", type="primary", use_container_width=True):
         if not selected_brands:
@@ -810,4 +787,3 @@ if uploaded_files:
                         st.dataframe(err_df, use_container_width=True)
                     else:
                         st.success("Sin errores en este lote.")
-

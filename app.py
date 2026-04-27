@@ -48,17 +48,42 @@ OFFER_PATTERNS = [
 ]
 
 MEDIO_MAP = {
-    "revista":    "Revista",
-    "periódico":  "Periódico",
-    "periodico":  "Periódico",
-    "radio":      "Radio",
-    "televisión": "Televisión",
-    "television": "Televisión",
-    "tv":         "Televisión",
-    "online":     "Online",
-    "display":    "Online",
-    "text":       "Online",
-    "video":      "Online",
+    # Auditsa
+    "revista":              "revista",
+    "periódico":            "periodico",
+    "periodico":            "periodico",
+    "radio":                "radio",
+    "televisión":           "tv",
+    "television":           "tv",
+    "tv":                   "tv",
+    # Admetricks
+    "online":               "online",
+    "display":              "online",
+    "text":                 "online",
+    "video":                "online",
+    "facebook":             "online",
+    "instagram":            "online",
+    "youtube":              "online",
+    "search":               "online",
+    "banner":               "online",
+    # OOH (todos los TipoPublicidad → ooh)
+    "muro":                 "ooh",
+    "tunel":                "ooh",
+    "cartelera":            "ooh",
+    "cartelera doble":      "ooh",
+    "cartelera digital":    "ooh",
+    "mega valla":           "ooh",
+    "valla":                "ooh",
+    "valla digital":        "ooh",
+    "puente":               "ooh",
+    "cabina inteligente":   "ooh",
+    "kiosco":               "ooh",
+    "kiosco digital":       "ooh",
+    "reloj":                "ooh",
+    "columna":              "ooh",
+    "mupi":                 "ooh",
+    "parabuses":            "ooh",
+    "parabus digital":      "ooh",
 }
 
 MAX_PER_MEDIO = 3
@@ -370,7 +395,7 @@ def normalize_brand(raw: str) -> str:
 
 
 def normalize_medio(raw: str) -> str:
-    return MEDIO_MAP.get(str(raw).strip().lower(), str(raw).strip().title())
+    return MEDIO_MAP.get(str(raw).strip().lower(), "online")
 
 
 def brand_in_selection(raw: str, selected: list[str]) -> bool:
@@ -458,7 +483,7 @@ def download_file(url: str, folder: Path, filename_base: str):
 
 def process_file(df, source, selected_brands, base_path, month_folder, prog_bar, status_txt):
     results = []
-    medio_counters: dict = {}
+    brand_counters: dict = {}
 
     if source == "auditsa":
         url_col, desc_col, fuente_col, medio_col = (
@@ -481,10 +506,7 @@ def process_file(df, source, selected_brands, base_path, month_folder, prog_bar,
     df = df.drop_duplicates(subset=[url_col])
 
     df["_marca_norm"] = df["Marca"].apply(normalize_brand)
-    if source == "ooh":
-        df["_medio_norm"] = df[medio_col].fillna("OOH").astype(str).str.strip().str.lower()
-    else:
-        df["_medio_norm"] = df[medio_col].apply(normalize_medio) if medio_col in df.columns else "Online"
+    df["_medio_norm"] = df[medio_col].apply(normalize_medio) if medio_col in df.columns else "online"
 
     if source == "ooh":
         # Muestreo aleatorio para OOH
@@ -515,9 +537,6 @@ def process_file(df, source, selected_brands, base_path, month_folder, prog_bar,
         if source == "admetricks":
             tags = str(row.get("Etiquetas de campaña", ""))
             desc = f"{desc} {tags}"
-        if source == "ooh":
-            medio = row.get("TipoPublicidad", "ooh")
-            medio = str(medio).strip() if pd.notna(medio) else "ooh"
 
         prog_bar.progress((i + 1) / total)
         status_txt.text(f"{i+1}/{total}   {marca}   ({medio})")
@@ -533,9 +552,8 @@ def process_file(df, source, selected_brands, base_path, month_folder, prog_bar,
 
         fecha_str  = fecha.strftime("%Y-%m-%d") if hasattr(fecha, "strftime") else str(fecha)[:10]
         folder     = get_save_folder(base_path, marca, month_folder)
-        medio_key  = (marca, medio)
-        medio_counters[medio_key] = medio_counters.get(medio_key, 0) + 1
-        fname_base = f"{slug(marca)}_{slug(medio)}_{medio_counters[medio_key]}"
+        brand_counters[marca] = brand_counters.get(marca, 0) + 1
+        fname_base = f"{slug(marca)}_{slug(medio)}_{brand_counters[marca]}"
 
         ok, fname, err = download_file(url, folder, fname_base)
 

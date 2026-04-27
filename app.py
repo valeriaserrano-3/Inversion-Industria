@@ -1,486 +1,786 @@
-"""
-Inversión Automotriz – App Unificada
-Streamlit app para procesar archivos de inversión (GWM, JAC, KAVAK, Industria)
-y generar el layout unificado para automotriz.xlsx.
-"""
-
 import streamlit as st
 import pandas as pd
-import numpy as np
+import requests
+import re
+import os
+import zipfile
 import io
-import calendar
-import warnings
-from datetime import datetime
+import unicodedata
 from pathlib import Path
+from datetime import datetime
 
-warnings.filterwarnings("ignore")
+# ─── CONSTANTES ───────────────────────────────────────────────────────────────
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CONFIGURACIÓN DE PÁGINA
-# ─────────────────────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="Inversión Automotriz",
-    page_icon="✰",
-    layout="wide",
+BRANDS_LIST = sorted([
+    "BYD", "CHANGAN", "CHEVROLET", "CHIREY", "FORD", "FOTON",
+    "GAC", "GEELY", "GWM", "HONDA", "HYUNDAI", "JAC", "JAC INDUSTRIA",
+    "JETOUR", "KIA", "MAZDA", "MG", "MITSUBISHI", "NISSAN",
+    "OMODA", "PEUGEOT", "RAM", "RENAULT", "SEAT", "SUZUKI",
+    "TOYOTA", "VOLKSWAGEN", "VOLVO",
+])
+
+MONTHS_ES = {
+    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+    9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
+}
+
+BRAND_ALIASES = {
+    "VW": "VOLKSWAGEN",
+    "VOLKSWAGEN": "VOLKSWAGEN",
+    "GWM MOTORS": "GWM",
+    "GWM MEXICO": "GWM",
+    "GWM": "GWM",
+    "MG MOTOR": "MG",
+    "JAC INDUSTRIA": "JAC INDUSTRIA",
+    "JAC": "JAC",
+}
+
+OFFER_PATTERNS = [
+    r"tasa", r"inter[eé]s", r"\bcat\b", r"anualidad",
+    r"desde\s*\$", r"\$\s*[\d,]+", r"[\d,]+\s*%",
+    r"\d+\s*meses?", r"mensualidad", r"mensuale?s?",
+    r"enganche", r"financiam\w*", r"descuento",
+    r"oferta", r"promoci[oó]n", r"\bmsi\b",
+    r"sin intereses", r"pago\s+mensual", r"bonificaci\w*",
+    r"plan de pago", r"cuota", r"cashback",
+    r"ahorra", r"regalo", r"bono",
+]
+
+MEDIO_MAP = {
+    "revista":    "Revista",
+    "periódico":  "Periódico",
+    "periodico":  "Periódico",
+    "radio":      "Radio",
+    "televisión": "Televisión",
+    "television": "Televisión",
+    "tv":         "Televisión",
+    "online":     "Online",
+    "display":    "Online",
+    "text":       "Online",
+    "video":      "Online",
+}
+
+MAX_PER_MEDIO = 3
+
+# ─── CSS BLOQUES ──────────────────────────────────────────────────────────────
+
+_CSS_BASE = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Poppins:wght@400;500;600;700&display=swap');
+
+/* ── Fuentes — NO tocar span/div para no romper Material Icons ── */
+h1, h2, h3, h4, h5 { font-family: 'Poppins', sans-serif !important; }
+p, label, li, td, th, input, select, textarea,
+.stMarkdown p, .stText, .stCaption {
+    font-family: 'IBM Plex Sans', sans-serif !important;
+}
+
+/* ── Proteger iconos Material (fixes keyboard_double y uploadupload) ── */
+[data-testid="collapsedControl"] span,
+[data-testid="stFileUploaderDropzone"] button span:first-child,
+[class*="material"], .material-icons, .material-symbols-rounded {
+    font-family: 'Material Symbols Rounded', 'Material Icons', sans-serif !important;
+}
+
+/* ── Sidebar collapse arrow — siempre visible ── */
+[data-testid="collapsedControl"] {
+    display: flex !important; visibility: visible !important; opacity: 1 !important;
+}
+
+/* ── Pills nativos de Streamlit (st.pills) — estilos compactos ── */
+[data-testid="stPills"] {
+    gap: 4px !important;
+}
+[data-testid="stPills"] button {
+    font-size: 10px !important;
+    padding: 2px 8px !important;
+    min-height: 0 !important;
+    line-height: 1.4 !important;
+    border-radius: 3px !important;
+}
+
+/* ── Animaciones coche ── */
+@keyframes drive_car { from { left: -70px; } to { left: 100%; } }
+@keyframes road_move { from { background-position: 0 0; } to { background-position: 56px 0; } }
+@keyframes blink_txt { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.car-road {
+    position: relative; width: 100%; height: 60px;
+    border-radius: 5px; border: 1px solid; overflow: hidden; margin: 10px 0 4px 0;
+}
+.car-road-surface { position: absolute; bottom: 0; left: 0; right: 0; height: 20px; border-top: 1px solid; }
+.car-road-dashes-anim {
+    position: absolute; bottom: 9px; left: 0; right: 0; height: 2px;
+    animation: road_move 0.5s linear infinite;
+}
+.car-road-dashes-static { position: absolute; bottom: 9px; left: 0; right: 0; height: 2px; }
+.car-driving {
+    position: absolute; bottom: 14px; left: -70px;
+    font-size: 30px; line-height: 1; animation: drive_car 2.8s linear infinite;
+}
+.car-parked { position: absolute; bottom: 14px; right: 24px; font-size: 30px; line-height: 1; }
+.car-status {
+    font-family: 'IBM Plex Sans', sans-serif; font-size: 0.72em;
+    font-weight: 500; letter-spacing: 0.12em; margin-bottom: 6px;
+}
+.car-status-blink { animation: blink_txt 1.4s ease-in-out infinite; }
+</style>
+"""
+
+_CSS_LIGHT = """
+<style>
+.stApp { background: #ffffff !important; }
+section[data-testid="stSidebar"] { background: #f7f7f7 !important; border-right: 1px solid #e2e2e2 !important; }
+
+h1 { color: #111111 !important; font-size: 1.4em !important; font-weight: 700; border-bottom: 2px solid #111; padding-bottom: 8px; }
+h2 { color: #666666 !important; font-size: 0.78em !important; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+h3 { color: #222222 !important; font-size: 0.9em !important; font-weight: 600; }
+.stCaption { color: #aaaaaa !important; font-size: 0.78em !important; }
+
+.stButton > button[kind="primary"] {
+    background: #111111 !important; color: #ffffff !important; border: none !important;
+    border-radius: 4px !important; font-family: 'Poppins', sans-serif !important;
+    font-size: 0.82em !important; font-weight: 600; letter-spacing: 0.05em; padding: 10px 20px !important;
+}
+.stButton > button[kind="primary"]:hover { background: #333 !important; }
+div.stButton > button:not([kind="primary"]) {
+    background: transparent !important; color: #111 !important;
+    border: 1.5px solid #ccc !important; border-radius: 4px !important; font-size: 0.8em !important;
+}
+div.stButton > button:not([kind="primary"]):hover { border-color: #111 !important; }
+
+.stDownloadButton > button {
+    background: #f3f3f3 !important; color: #111 !important;
+    border: 1.5px solid #111 !important; border-radius: 4px !important; font-size: 0.8em !important;
+}
+
+.stTextInput > div > div > input {
+    background: #fff !important; color: #111 !important; border: 1.5px solid #ddd !important;
+    border-radius: 4px !important; font-family: 'IBM Plex Sans', sans-serif !important; font-size: 13px !important;
+}
+.stTextInput > div > div > input:focus { border-color: #111 !important; box-shadow: 0 0 0 1px #11111120 !important; }
+
+.stSelectbox > div > div { background: #fff !important; border: 1.5px solid #ddd !important; border-radius: 4px !important; }
+.stMultiSelect > div > div { background: #fff !important; border: 1.5px solid #ddd !important; border-radius: 4px !important; }
+.stMultiSelect span[data-baseweb="tag"] { background: #f0f0f0 !important; color: #111 !important; border: 1px solid #ccc !important; border-radius: 4px !important; }
+
+[data-testid="stFileUploaderDropzone"] { background: #fafafa !important; border: 1.5px dashed #ccc !important; border-radius: 6px !important; }
+.stProgress > div > div > div > div { background: #111111 !important; }
+hr { border-color: #e2e2e2 !important; margin: 12px 0 !important; }
+
+.stTabs [data-baseweb="tab-list"] { border-bottom: 1.5px solid #e2e2e2 !important; background: transparent !important; gap: 0; }
+.stTabs [data-baseweb="tab"] { background: transparent !important; color: #bbb !important; font-family: 'Poppins', sans-serif !important; font-size: 0.76em !important; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; padding: 8px 20px !important; border: none !important; border-bottom: 2px solid transparent !important; }
+.stTabs [aria-selected="true"] { color: #111 !important; border-bottom: 2px solid #111 !important; }
+
+[data-testid="metric-container"] { background: #f8f8f8 !important; border: 1px solid #e2e2e2 !important; border-radius: 6px !important; padding: 16px !important; }
+[data-testid="metric-container"] label { color: #aaa !important; font-size: 0.68em !important; letter-spacing: 0.1em; text-transform: uppercase; }
+[data-testid="stMetricValue"] { color: #111 !important; font-size: 2em !important; font-weight: 700; }
+
+.stDataFrame { border: 1px solid #e2e2e2 !important; border-radius: 4px !important; }
+.stCheckbox label { color: #555 !important; font-size: 0.84em !important; }
+.stAlert { border-radius: 4px !important; font-size: 0.82em !important; }
+
+/* st.pills — dia: blanco/negro sin seleccionar, rojo vino al seleccionar */
+[data-testid="stBaseButton-pills"] {
+    background: #f5f5f5 !important;
+    color: #555555 !important;
+    border: 1.5px solid #cccccc !important;
+}
+[data-testid="stBaseButton-pillsActive"] {
+    background: #722F37 !important;
+    color: #ffffff !important;
+    border-color: #722F37 !important;
+}
+
+/* Pills de marca — dia */
+.brand-toggle-on  { display:inline-block; background:#111; color:#fff; border:1px solid #111; border-radius:4px; padding:3px 10px; font-size:11px; font-family:'IBM Plex Sans',sans-serif; font-weight:600; margin:2px; cursor:pointer; letter-spacing:.03em; }
+.brand-toggle-off { display:inline-block; background:#f4f4f4; color:#888; border:1px solid #ddd; border-radius:4px; padding:3px 10px; font-size:11px; font-family:'IBM Plex Sans',sans-serif; font-weight:400; margin:2px; cursor:pointer; letter-spacing:.03em; }
+
+/* Car — dia */
+.car-road { background: #f2f2f2 !important; border-color: #ddd !important; }
+.car-road-surface { background: #e4e4e4 !important; border-top-color: #ccc !important; }
+.car-road-dashes-anim, .car-road-dashes-static { background: repeating-linear-gradient(90deg, #99999966 0, #99999966 28px, transparent 28px, transparent 56px) !important; }
+.car-status { color: #111 !important; }
+</style>
+"""
+
+_CSS_DARK = """
+<style>
+.stApp { background: #06080f !important; }
+section[data-testid="stSidebar"] { background: #08090f !important; border-right: 1px solid #151d2b !important; }
+
+/* Texto general — noche: todo blanco */
+p, label, li, td, th, small,
+.stMarkdown p, .stText, .stCaption,
+[data-testid="stWidgetLabel"] p,
+[data-testid="stFileUploaderDropzoneInstructions"] span,
+[data-testid="stFileUploaderDropzoneInstructions"] small {
+    color: #ffffff !important;
+}
+
+h1 { color: #00d4aa !important; font-size: 1.4em !important; font-weight: 700; border-bottom: 1px solid #151d2b; padding-bottom: 8px; letter-spacing: 0.04em; }
+h2 { color: #ffffff !important; font-size: 0.78em !important; font-weight: 400; letter-spacing: 0.1em; text-transform: uppercase; }
+h3 { color: #ffffff !important; font-size: 0.9em !important; font-weight: 500; }
+.stCaption { color: #ffffff !important; font-size: 0.78em !important; }
+
+.stButton > button[kind="primary"] {
+    background: #00d4aa !important; color: #06080f !important; border: none !important;
+    border-radius: 4px !important; font-family: 'Poppins', sans-serif !important;
+    font-size: 0.82em !important; font-weight: 700; letter-spacing: 0.05em; padding: 10px 20px !important;
+}
+.stButton > button[kind="primary"]:hover { background: #00b894 !important; }
+div.stButton > button:not([kind="primary"]) {
+    background: transparent !important; color: #00d4aa !important;
+    border: 1px solid #1e3a2e !important; border-radius: 4px !important; font-size: 0.8em !important;
+}
+div.stButton > button:not([kind="primary"]):hover { border-color: #00d4aa !important; }
+
+.stDownloadButton > button {
+    background: #0a1f18 !important; color: #00d4aa !important;
+    border: 1px solid #00d4aa !important; border-radius: 4px !important; font-size: 0.8em !important;
+}
+
+.stTextInput > div > div > input {
+    background: #0a0d16 !important; color: #ffffff !important; border: 1px solid #151d2b !important;
+    border-radius: 4px !important; font-family: 'IBM Plex Sans', sans-serif !important; font-size: 13px !important;
+}
+.stTextInput > div > div > input:focus { border-color: #00d4aa !important; box-shadow: 0 0 0 1px #00d4aa1a !important; }
+
+.stSelectbox > div > div { background: #0a0d16 !important; border: 1px solid #151d2b !important; border-radius: 4px !important; color: #ffffff !important; }
+.stMultiSelect > div > div { background: #0a0d16 !important; border: 1px solid #151d2b !important; border-radius: 4px !important; }
+.stMultiSelect span[data-baseweb="tag"] { background: #0a1f18 !important; color: #00d4aa !important; border: 1px solid #00d4aa33 !important; border-radius: 4px !important; }
+
+[data-testid="stFileUploaderDropzone"] { background: #0a0d16 !important; border: 1px dashed #1e2a3a !important; border-radius: 6px !important; }
+.stProgress > div > div > div > div { background: #00d4aa !important; }
+hr { border-color: #151d2b !important; margin: 12px 0 !important; }
+
+.stTabs [data-baseweb="tab-list"] { border-bottom: 1px solid #151d2b !important; background: transparent !important; gap: 0; }
+.stTabs [data-baseweb="tab"] { background: transparent !important; color: #ffffff !important; font-family: 'Poppins', sans-serif !important; font-size: 0.76em !important; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; padding: 8px 20px !important; border: none !important; border-bottom: 2px solid transparent !important; opacity: 0.45; }
+.stTabs [aria-selected="true"] { color: #00d4aa !important; border-bottom: 2px solid #00d4aa !important; opacity: 1; }
+
+[data-testid="metric-container"] { background: #0a0d16 !important; border: 1px solid #151d2b !important; border-radius: 6px !important; padding: 16px !important; }
+[data-testid="metric-container"] label { color: #ffffff !important; font-size: 0.68em !important; letter-spacing: 0.1em; text-transform: uppercase; }
+[data-testid="stMetricValue"] { color: #00d4aa !important; font-size: 2em !important; font-weight: 700; }
+
+.stDataFrame { border: 1px solid #151d2b !important; border-radius: 4px !important; }
+.stCheckbox label { color: #ffffff !important; font-size: 0.84em !important; }
+.stAlert { border-radius: 4px !important; font-size: 0.82em !important; }
+
+/* st.pills — noche: fondo oscuro, seleccionado en teal */
+[data-testid="stBaseButton-pills"] {
+    background: #0a1218 !important;
+    color: #ffffff !important;
+    border: 1px solid #1e2e3a !important;
+}
+[data-testid="stBaseButton-pillsActive"] {
+    background: #00d4aa !important;
+    color: #06080f !important;
+    border-color: #00d4aa !important;
+}
+
+/* Pills de marca — noche */
+.brand-toggle-on  { display:inline-block; background:#00d4aa; color:#06080f; border:1px solid #00d4aa; border-radius:4px; padding:3px 10px; font-size:11px; font-family:'IBM Plex Sans',sans-serif; font-weight:700; margin:2px; cursor:pointer; letter-spacing:.03em; }
+.brand-toggle-off { display:inline-block; background:#0a1f18; color:#3a6a5a; border:1px solid #1e3a2e; border-radius:4px; padding:3px 10px; font-size:11px; font-family:'IBM Plex Sans',sans-serif; font-weight:400; margin:2px; cursor:pointer; letter-spacing:.03em; }
+
+/* Toolbar / Deploy — noche */
+[data-testid="stHeader"],
+[data-testid="stToolbar"],
+header[data-testid="stHeader"] {
+    background: #06080f !important;
+    border-bottom: 1px solid #151d2b !important;
+}
+[data-testid="stToolbar"] button,
+[data-testid="stToolbar"] a,
+[data-testid="stHeader"] button {
+    color: #ffffff !important;
+}
+
+/* Car — noche */
+.car-road { background: #080c18 !important; border-color: #1a2535 !important; }
+.car-road-surface { background: #0d1520 !important; border-top-color: #1a2535 !important; }
+.car-road-dashes-anim, .car-road-dashes-static { background: repeating-linear-gradient(90deg, #00d4aa55 0, #00d4aa55 28px, transparent 28px, transparent 56px) !important; }
+.car-status { color: #00d4aa !important; }
+</style>
+"""
+
+_CSS_AUTO = """
+<style>
+@media (prefers-color-scheme: light) {
+""" + _CSS_LIGHT.replace("<style>","").replace("</style>","") + """
+}
+@media (prefers-color-scheme: dark) {
+""" + _CSS_DARK.replace("<style>","").replace("</style>","") + """
+}
+</style>
+"""
+
+# ─── CAR ANIMATION ────────────────────────────────────────────────────────────
+
+DRIVING_CAR_HTML = """
+<div class="car-road">
+    <div class="car-road-surface"></div>
+    <div class="car-road-dashes-anim"></div>
+    <div class="car-driving">🚗</div>
+</div>
+<div class="car-status car-status-blink">DESCARGANDO TESTIGOS...</div>
+"""
+
+PARKED_CAR_HTML = """
+<div class="car-road">
+    <div class="car-road-surface"></div>
+    <div class="car-road-dashes-static"></div>
+    <div class="car-parked">🚗</div>
+</div>
+<div class="car-status">PROCESO COMPLETADO</div>
+"""
+
+
+# ─── HELPERS ──────────────────────────────────────────────────────────────────
+
+def find_base_path() -> str:
+    cloud = Path.home() / "Library" / "CloudStorage"
+    if cloud.exists():
+        for gd in sorted(cloud.glob("GoogleDrive-*")):
+            candidate = (
+                gd / "Unidades compartidas"
+                / "Business Intelligence"
+                / "Automotriz"
+                / "Testigos Competencia"
+            )
+            if candidate.exists():
+                return str(candidate)
+    return str(Path.home() / "Desktop")
+
+
+def detect_source(df: pd.DataFrame) -> str:
+    cols = set(df.columns)
+    if "Testigo" in cols:
+        return "auditsa"
+    if "Advertisement" in cols:
+        return "admetricks"
+    if "Url" in cols and "TipoPublicidad" in cols:
+        return "ooh"
+    return "unknown"
+
+
+def normalize_brand(raw: str) -> str:
+    b = str(raw).strip().upper()
+    return BRAND_ALIASES.get(b, b)
+
+
+def normalize_medio(raw: str) -> str:
+    return MEDIO_MAP.get(str(raw).strip().lower(), str(raw).strip().title())
+
+
+def brand_in_selection(raw: str, selected: list[str]) -> bool:
+    return normalize_brand(raw) in [normalize_brand(s) for s in selected]
+
+
+def has_offer(text) -> bool:
+    if not text or (isinstance(text, float) and pd.isna(text)):
+        return False
+    t = str(text).lower()
+    return any(re.search(p, t) for p in OFFER_PATTERNS)
+
+
+def get_extension(content_type: str, url: str) -> str:
+    ct = content_type.lower()
+    for token, ext in [
+        ("jpeg", ".jpg"), ("jpg", ".jpg"), ("png", ".png"),
+        ("gif", ".gif"), ("pdf", ".pdf"), ("mp4", ".mp4"), ("webp", ".webp"),
+    ]:
+        if token in ct:
+            return ext
+    _, ext = os.path.splitext(url.split("?")[0])
+    return ext if ext else ".jpg"
+
+
+def sanitize(s: str, max_len: int = 50) -> str:
+    return re.sub(r"[^\w\-]", "_", str(s).strip())[:max_len]
+
+
+def slug(s: str) -> str:
+    """Minúsculas sin acentos, espacios → guión bajo. Ej: 'Televisión' → 'television'."""
+    s = unicodedata.normalize("NFD", str(s).lower())
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^\w]", "_", s).strip("_")
+
+
+def get_save_folder(base: str, marca: str, month_folder: str) -> Path:
+    """Estructura: base / mes_año / marca / testigo"""
+    folder = Path(base) / slug(month_folder) / slug(normalize_brand(marca))
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def list_month_folders(base_path: str) -> list[str]:
+    p = Path(base_path)
+    if not p.exists():
+        return []
+    skip = {".streamlit", ".DS_Store", ".git", ".claude"}
+    return sorted(
+        [d.name for d in p.iterdir() if d.is_dir() and d.name not in skip],
+        reverse=True,
+    )
+
+
+def extract_year(folder_name: str) -> str:
+    for part in folder_name.split():
+        if part.isdigit() and len(part) == 4:
+            return part
+    return "Sin año"
+
+
+def download_file(url: str, folder: Path, filename_base: str):
+    try:
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
+        }
+        r = requests.get(url, headers=headers, timeout=30, stream=True)
+        r.raise_for_status()
+        ext = get_extension(r.headers.get("content-type", ""), url)
+        fname = f"{filename_base}{ext}"
+        fpath = folder / fname
+        with open(fpath, "wb") as f:
+            for chunk in r.iter_content(65536):
+                f.write(chunk)
+        return True, fname, None
+    except Exception as e:
+        return False, None, str(e)
+
+
+# ─── PROCESAMIENTO ────────────────────────────────────────────────────────────
+
+def process_file(df, source, selected_brands, base_path, month_folder, prog_bar, status_txt):
+    results = []
+    medio_counters: dict = {}
+
+    if source == "auditsa":
+        url_col, desc_col, fuente_col, medio_col = (
+            "Testigo", "Texto de nota", "Fuente", "Medio"
+        )
+    elif source == "ooh":
+        url_col, desc_col, fuente_col, medio_col = (
+            "Url", "ProductoTag", "Ciudad", "TipoPublicidad"
+        )
+    else:
+        url_col, desc_col, fuente_col, medio_col = (
+            "Advertisement", "Nombre de campaña", "Sitio web", "Formato"
+        )
+
+    # Limpiar filas basura de OOH (totales, NaN, etc.)
+    df = df[df["Marca"].notna()].copy()
+    df = df[~df["Marca"].astype(str).str.strip().isin(["Total", "No se han aplicado filtros", "nan"])].copy()
+
+    df = df[df["Marca"].apply(lambda x: brand_in_selection(x, selected_brands))].copy()
+    df = df.drop_duplicates(subset=[url_col])
+
+    df["_marca_norm"] = df["Marca"].apply(normalize_brand)
+    if source == "ooh":
+        df["_medio_norm"] = df[medio_col].fillna("OOH").astype(str).str.strip().str.lower()
+    else:
+        df["_medio_norm"] = df[medio_col].apply(normalize_medio) if medio_col in df.columns else "Online"
+
+    if source == "ooh":
+        # Muestreo aleatorio para OOH
+        df = (
+            df.groupby(["_marca_norm", "_medio_norm"], group_keys=False)
+            .apply(lambda g: g.sample(min(MAX_PER_MEDIO, len(g)), random_state=None))
+            .reset_index(drop=True)
+        )
+    else:
+        df = (
+            df.groupby(["_marca_norm", "_medio_norm"], group_keys=False)
+            .apply(lambda g: g.head(MAX_PER_MEDIO))
+            .reset_index(drop=True)
+        )
+
+    total = len(df)
+    if total == 0:
+        return results
+
+    for i, (_, row) in enumerate(df.iterrows()):
+        marca  = normalize_brand(row.get("Marca", ""))
+        fuente = sanitize(row.get(fuente_col, "desconocido"))
+        medio  = normalize_medio(row.get(medio_col, "")) if medio_col in df.columns else "Online"
+        fecha  = row.get("Fecha", datetime.now())
+        url    = str(row.get(url_col, "")).strip()
+
+        desc = str(row.get(desc_col, ""))
+        if source == "admetricks":
+            tags = str(row.get("Etiquetas de campaña", ""))
+            desc = f"{desc} {tags}"
+        if source == "ooh":
+            medio = row.get("TipoPublicidad", "ooh")
+            medio = str(medio).strip() if pd.notna(medio) else "ooh"
+
+        prog_bar.progress((i + 1) / total)
+        status_txt.text(f"{i+1}/{total}   {marca}   ({medio})")
+
+        if not url or url in ("nan", ""):
+            results.append({
+                "Marca": marca, "Medio": medio, "Fuente": fuente,
+                "Fecha": str(fecha)[:10], "Exito": False,
+                "Archivo": "", "Error": "URL vacia",
+                "Oferta Comercial": has_offer(desc), "Texto": desc[:300],
+            })
+            continue
+
+        fecha_str  = fecha.strftime("%Y-%m-%d") if hasattr(fecha, "strftime") else str(fecha)[:10]
+        folder     = get_save_folder(base_path, marca, month_folder)
+        medio_key  = (marca, medio)
+        medio_counters[medio_key] = medio_counters.get(medio_key, 0) + 1
+        fname_base = f"{slug(marca)}_{slug(medio)}_{medio_counters[medio_key]}"
+
+        ok, fname, err = download_file(url, folder, fname_base)
+
+        oferta = False if source == "ooh" else has_offer(desc)
+        results.append({
+            "Marca":            marca,
+            "Medio":            medio,
+            "Fuente":           fuente,
+            "Fecha":            fecha_str,
+            "Exito":            ok,
+            "Archivo":          fname or "",
+            "Error":            err or "",
+            "Oferta Comercial": oferta,
+            "Texto":            desc[:300] if oferta else "",
+        })
+
+    return results
+
+
+# ─── ZIP ──────────────────────────────────────────────────────────────────────
+
+def build_zip(base_path: str, month_folder: str) -> bytes | None:
+    target = Path(base_path) / month_folder
+    if not target.exists():
+        return None
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file in sorted(target.rglob("*")):
+            if file.is_file():
+                # Incluir carpeta mes como raíz: mes/MARCA/archivo
+                zf.write(file, Path(month_folder) / file.relative_to(target))
+    buf.seek(0)
+    return buf.read()
+
+
+# ─── UI ───────────────────────────────────────────────────────────────────────
+
+st.set_page_config(page_title="Testigos Competencia", page_icon=None, layout="wide")
+
+# ── Inicializar session state ──
+if "theme_mode" not in st.session_state:
+    st.session_state.theme_mode = "◑"          # auto por defecto
+if "brand_pills_widget" not in st.session_state:
+    st.session_state["brand_pills_widget"] = BRANDS_LIST
+
+# ── Inyectar CSS segun tema ──
+theme_icon = st.session_state.theme_mode
+if theme_icon == "☀️":
+    st.markdown(_CSS_BASE + _CSS_LIGHT, unsafe_allow_html=True)
+elif theme_icon == "🌙":
+    st.markdown(_CSS_BASE + _CSS_DARK, unsafe_allow_html=True)
+else:
+    st.markdown(_CSS_BASE + _CSS_AUTO, unsafe_allow_html=True)
+
+st.title("Testigos — Competencia Automotriz")
+st.caption(
+    "Auditsa (revista · radio · tele · periodico)  +  Admetricks (online)"
+    "  ·  Max. 3 testigos por medio por marca"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CONTRASEÑA
-# ─────────────────────────────────────────────────────────────────────────────
-def check_password() -> bool:
-    if st.session_state.get("authenticated"):
-        return True
-
-    st.markdown("""
-        <style>
-        .login-box { max-width: 380px; margin: 80px auto; padding: 40px; background: #fff; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,.1); text-align: center; }
-        </style>
-        <div class="login-box">
-          <h2>Inversión Automotriz</h2>
-          <p>Ingresa la contraseña para continuar</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    col = st.columns([1, 2, 1])[1]
-    with col:
-        pwd = st.text_input("Contraseña", type="password", label_visibility="collapsed")
-        if st.button("Entrar", use_container_width=True):
-            if pwd == "automotriz2026":
-                st.session_state["authenticated"] = True
-                st.rerun()
-            else:
-                st.error("Contraseña incorrecta.")
-    return False
-
-if not check_password():
-    st.stop()
-
-# ─────────────────────────────────────────────────────────────────────────────
-# HELPERS Y MULTIPLICADORES
-# ─────────────────────────────────────────────────────────────────────────────
-MULTIPLICADORES = {
-    "radio": 1.30,
-    "tele_abierta": 1.30,
-    "tele_paga": 1.30,
-    "online": 1.30,
-    "ooh_factor": 1.30
-}
-
-MESES_DICC = {
-    'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4, 'MAYO': 5, 'JUNIO': 6,
-    'JULIO': 7, 'AGOSTO': 8, 'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
-}
-
-def parse_yrmth(val):
-    """Convierte 'jan2025' o fechas a Timestamp."""
-    try:
-        if isinstance(val, datetime): return val
-        s = str(val).strip().lower()
-        # Caso jan2025
-        for i, m in enumerate(calendar.month_abbr):
-            if m and s.startswith(m.lower()):
-                return pd.Timestamp(year=int(s[3:]), month=i, day=1)
-        return pd.to_datetime(val)
-    except:
-        return pd.NaT
-
-# ─────────────────────────────────────────────────────────────────────────────
-# LÓGICA DE PROCESAMIENTO POR LAYOUT
-# ─────────────────────────────────────────────────────────────────────────────
-
-def process_naming_convention(df, grupo_nombre):
-    """Procesador para GWM, JAC, KAVAK (Layout Naming Convention)"""
-    # Limpieza básica
-    df['monto'] = pd.to_numeric(df['monto'], errors='coerce').fillna(0)
-    df['Bonificación Cliente'] = pd.to_numeric(df['Bonificación Cliente'], errors='coerce').fillna(0)
-    df['Inversión (MXN)'] = df['monto'] + df['Bonificación Cliente']
-    
-    # Mapeo de columnas al layout final
-    res = pd.DataFrame()
-    res['Fuente'] = df['FUENTE'].apply(lambda x: 'OOH' if 'EXTERIOR' in str(x).upper() else 'Offline')
-    res['Año-mes'] = df['yrmth'].apply(parse_yrmth)
-    res['Año'] = res['Año-mes'].dt.year
-    res['Inversión (MXN)'] = df['Inversión (MXN)']
-    res['Inversión F30'] = df['Inversión (MXN)'] # Ajustar si lleva multiplicador
-    res['#Grupo'] = grupo_nombre
-    res['Categoría'] = df.get('OBJETIVO', 'Institucional')
-    res['Producto'] = df.get('Modelos', 'Varios')
-    res['medio'] = df['FUENTE']
-    res['modelo'] = df.get('Modelos', 'Varios')
-    return res
-
-def process_hr_ratings(df, medio_nombre):
-    """Procesador para HR Ratings (Industria)"""
-    # HR suele tener 42 columnas, aquí filtramos solo lo necesario
-    res = pd.DataFrame()
-    res['Fuente'] = 'Offline'
-    # HR suele tener columnas como 'MES' y 'ANIO' o 'FECHA'
-    date_col = next((c for c in df.columns if 'FECHA' in c.upper()), df.columns[0])
-    res['Año-mes'] = pd.to_datetime(df[date_col]).dt.to_period('M').dt.to_timestamp()
-    res['Año'] = res['Año-mes'].dt.year
-    
-    inv_col = next((c for c in df.columns if 'INVER' in c.upper() or 'TARIFA' in c.upper()), None)
-    res['Inversión (MXN)'] = pd.to_numeric(df[inv_col], errors='coerce').fillna(0)
-    res['Inversión F30'] = res['Inversión (MXN)'] * MULTIPLICADORES.get(medio_nombre.lower(), 1.0)
-    
-    res['#Grupo'] = df.get('MARCA', 'INDUSTRIA')
-    res['Categoría'] = 'Automotriz'
-    res['Producto'] = df.get('MODELO', 'Varios')
-    res['medio'] = medio_nombre
-    res['modelo'] = df.get('MODELO', 'Varios')
-    return res
-
-# ─────────────────────────────────────────────────────────────────────────────
-# INTERFAZ DE USUARIO (STREAMLIT)
-# ─────────────────────────────────────────────────────────────────────────────
-st.title("Procesador de Inversión Automotriz")
-st.markdown("Carga tus archivos según la marca para generar el consolidado.")
-
-# Menú lateral para elegir qué procesar
+# ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.header("Configuración")
-    marca_seleccionada = st.selectbox(
-        "¿Qué marca vas a procesar hoy?",
-        ["Dashboard Global"]
-        #["GWM", "JAC", "KAVAK", "INDUSTRIA (HR)", "ADMETRICKS", "OOH", "Dashboard Global"]
+
+    # Toggle de tema (arriba del todo)
+    tema = st.segmented_control(
+        "Tema",
+        options=["☀️", "◑", "🌙"],
+        default=st.session_state.theme_mode,
+        key="tema_seg",
     )
+    if tema and tema != st.session_state.theme_mode:
+        st.session_state.theme_mode = tema
+        st.rerun()
+
     st.divider()
-    st.info("El archivo resultante tendrá el formato de 'automotriz.xlsx'")
+    st.header("Configuracion")
 
-final_df = pd.DataFrame()
+    default_path = find_base_path()
+    base_path = st.text_input(
+        "Carpeta raiz:",
+        value=default_path,
+        help="Ruta local de la carpeta Testigos Competencia",
+    )
 
-
-# --- BLOQUE GWM ---
-if marca_seleccionada == "GWM":
-    st.subheader("Panel GWM")
-    col1, col2 = st.columns(2)
-    with col1:
-        f_off = st.file_uploader("Subir Naming Convention (Offline/OOH)", type=['xlsx'], key="gwm_off")
-    with col2:
-        f_on = st.file_uploader("Subir Resumen Digital (Online)", type=['xlsx'], key="gwm_on")
-    
-    if st.button("Procesar GWM"):
-        dataframes = []
-        if f_off:
-            df = pd.read_excel(f_off)
-            dataframes.append(process_naming_convention(df, "GWM"))
-        if f_on:
-            df_on = pd.read_excel(f_on)
-            # Aquí puedes añadir la lógica de procesamiento para Online de GWM
-            st.info("Procesando archivo Online...")
-        
-        if dataframes:
-            final_df = pd.concat(dataframes, ignore_index=True)
-            st.success("GWM Procesado. Revisa el resumen abajo.")
-
-# --- BLOQUE JAC ---
-elif marca_seleccionada == "JAC":
-    st.subheader("Panel JAC (Online + Offline)")
-    col1, col2 = st.columns(2)
-    with col1:
-        f_jac_off = st.file_uploader("Subir Naming JAC (Offline)", type=['xlsx'], key="jac_off")
-    with col2:
-        f_jac_on = st.file_uploader("Subir Seguimiento Digital (Online)", type=['xlsx'], key="jac_on")
-
-    if st.button("Procesar JAC"):
-        dataframes = []
-        if f_jac_off:
-            df_off = pd.read_excel(f_jac_off)
-            dataframes.append(process_naming_convention(df_off, "JAC INDUSTRIA"))
-
-        if f_jac_on:
-            try:
-                df_on_raw = pd.read_excel(f_jac_on, sheet_name='TOTAL FINAL')
-                mes_detectado = get_month_from_name(f_jac_on.name)
-                res_on = pd.DataFrame()
-                res_on['Fuente'] = 'Online'; res_on['#Grupo'] = "JAC INDUSTRIA"
-                res_on['Año-mes'] = mes_detectado if mes_detectado else pd.Timestamp.now().replace(day=1)
-                res_on['Año'] = res_on['Año-mes'].dt.year
-                inv_raw = pd.to_numeric(df_on_raw['Gasto'], errors='coerce').fillna(0)
-                res_on['Inversión (MXN)'] = inv_raw
-                res_on['Inversión F30'] = inv_raw * 1.3
-                res_on['modelo'] = df_on_raw['Modelo'].str.upper()
-                res_on['Categoría'] = res_on['modelo'].map(CAT_MAP).fillna('SUV')
-                res_on['medio'] = df_on_raw['Plataforma']
-                res_on['Producto'] = res_on['modelo']
-                dataframes.append(res_on)
-            except Exception as e:
-                st.error(f"Error en JAC Online: {e}")
-
-        if dataframes:
-            final_df = pd.concat(dataframes, ignore_index=True)
-            st.success("JAC Procesado correctamente.")
-
-# --- BLOQUE KAVAK ---
-elif marca_seleccionada == "KAVAK":
-    st.subheader("Panel KAVAK")
-    f_kavak = st.file_uploader("Subir Naming Convention KAVAK", type=['xlsx'], key="kavak_file")
-    
-    if f_kavak and st.button("Procesar KAVAK"):
-        df_kav = pd.read_excel(f_kavak)
-        df_kav.columns = [str(c).strip() for c in df_kav.columns]
-        res_kav = pd.DataFrame()
-        monto = pd.to_numeric(df_kav.get('monto', 0), errors='coerce').fillna(0)
-        bonif = pd.to_numeric(df_kav.get('Bonificación Cliente', 0), errors='coerce').fillna(0)
-        res_kav['Inversión (MXN)'] = monto + bonif
-        res_kav['Inversión F30'] = res_kav['Inversión (MXN)'] * 1.0
-        res_kav['Fuente'] = 'Offline'; res_kav['#Grupo'] = "KAVAK"
-        res_kav['Año-mes'] = df_kav['yrmth'].apply(parse_yrmth)
-        res_kav['Año'] = res_kav['Año-mes'].dt.year
-        res_kav['modelo'] = df_kav.get('Modelos', 'INSTITUCIONAL').str.upper()
-        res_kav['medio'] = df_kav['medio']
-        res_kav['Producto'] = res_kav['modelo']
-        res_kav['Categoría'] = df_kav.get('OBJETIVO', 'INSTITUCIONAL').str.upper()
-        final_df = res_kav[res_kav['Inversión (MXN)'] > 0].copy()
-        st.success("KAVAK Procesado.")
-
-# --- BLOQUE INDUSTRIA (HR) ---
-elif marca_seleccionada == "INDUSTRIA (HR)":
-    st.subheader("Panel Industria (HR Ratings)")
-    with st.expander("Configuración de Factores", expanded=False):
-        m_general = st.number_input("Factor General", value=1.3)
-        m_tv_abierta = st.number_input("TV Abierta", value=0.40)
-        m_tv_paga = st.number_input("TV Paga", value=0.60)
-        m_radio = st.number_input("Radio", value=0.70)
-    
-    factores = {"TELEVISION ABIERTA": m_tv_abierta, "TELEVISION PAGA": m_tv_paga, "RADIO": m_radio, "PRENSA": 1.0, "REVISTAS": 1.0}
-    t1, t2, t3 = st.tabs(["TV", "Radio", "Impresos"])
-    with t1: f_tv = st.file_uploader("Excel TV", type=['xlsx'])
-    with t2: f_rd = st.file_uploader("Excel Radio", type=['xlsx'])
-    with t3: f_pr = st.file_uploader("Excel Impresos", type=['xlsx'])
-
-    if st.button("Procesar Industria"):
-        list_ind = []
-        files = [(f_tv, "TELEVISION ABIERTA"), (f_rd, "RADIO"), (f_pr, "PRENSA")]
-        for f, m in files:
-            if f:
-                df_t = pd.read_excel(f)
-                res = process_hr_ratings(df_t, m)
-                res['Inversión F30'] = (res['Inversión (MXN)'] * m_general) * factores.get(m, 1.0)
-                list_ind.append(res)
-        if list_ind:
-            final_df = pd.concat(list_ind, ignore_index=True)
-            st.success("Industria Procesada.")
-
-# --- BLOQUE ADMETRICKS ---
-elif marca_seleccionada == "ADMETRICKS":
-    st.subheader("Panel Admetricks")
-    BRAND_MAP = {"GWM MOTORS": "GWM Motors", "JAC MOTORS": "JAC INDUSTRIA", "KAVAK": "KAVAK"}
-    f_adme = st.file_uploader("Subir Admetricks", type=['xlsx'])
-    if f_adme and st.button("Procesar Admetricks"):
-        df_ad = pd.read_excel(f_adme)
-        res_ad = pd.DataFrame()
-        res_ad['#Grupo'] = df_ad['Marca'].str.upper().map(BRAND_MAP).fillna(df_ad['Marca'])
-        res_ad['Inversión (MXN)'] = pd.to_numeric(df_ad['Valorización Est.'], errors='coerce').fillna(0)
-        res_ad['Inversión F30'] = res_ad['Inversión (MXN)'] * 1.3
-        res_ad['Fuente'] = 'Online'; res_ad['Categoría'] = 'ADMETRICKS'
-        res_ad['Año-mes'] = pd.Timestamp.now().replace(day=1)
-        final_df = res_ad[res_ad['Inversión (MXN)'] > 0].copy()
-        st.success("Admetricks Procesado.")
-
-# --- BLOQUE OOH ---
-elif marca_seleccionada == "OOH":
-    st.subheader("Panel OOH")
-    f_ooh = st.file_uploader("Subir OOH", type=['xlsx', 'csv'])
-    if f_ooh and st.button("Procesar OOH"):
-        df_ooh = pd.read_excel(f_ooh, skiprows=1) if not f_ooh.name.endswith('.csv') else pd.read_csv(f_ooh)
-        res_ooh = pd.DataFrame()
-        res_ooh['#Grupo'] = df_ooh['Marca'].str.upper()
-        inv_raw = pd.to_numeric(df_ooh.filter(like='Costo').iloc[:,0], errors='coerce').fillna(0)
-        res_ooh['Inversión (MXN)'] = inv_raw
-        res_ooh['Inversión F30'] = inv_raw * 1.3
-        res_ooh['Fuente'] = 'OOH'; res_ooh['Año-mes'] = pd.Timestamp.now().replace(day=1)
-        final_df = res_ooh[res_ooh['Inversión (MXN)'] > 0].copy()
-        st.success("OOH Procesado.")
-
-# --- BLOQUE DASHBOARD GLOBAL: UNIFICACIÓN TOTAL BASADA EN "SHORT NAME" ---
-# --- BLOQUE DASHBOARD GLOBAL: FIX CHEVROLET Y SUMATORIAS EXACTAS ---
-elif marca_seleccionada == "Dashboard Global":
-    st.title("Dashboard Estratégico 2026")
-    
-    if 'dg_memoria_historica' not in st.session_state:
-        st.session_state.dg_memoria_historica = pd.DataFrame()
-
-    # CATÁLOGO MAESTRO (Nombres finales exactos)
-    GRUPOS_VISTAS = {
-        "GWM": ["GWM MEXICO", "NISSAN", "CHEVROLET", "VOLKSWAGEN", "HYUNDAI", "BYD", "KIA", "GEELY", "CHIREY", "MG", "GAC", "TOYOTA", "CHANGAN MEXICO", "EXEED"],
-        "JAC": ["JAC", "JAC INDUSTRIA", "BYD", "NISSAN", "RAM", "CHEVROLET", "VOLKSWAGEN", "KIA", "HYUNDAI", "GEELY", "CHIREY", "RENAULT", "HONDA", "FORD", "MITSUBISHI", "MG", "TOYOTA", "GWM MEXICO", "PEUGEOT", "GAC", "SUZUKI", "CHANGAN MEXICO", "SEAT", "MAZDA", "FOTON", "JETOUR"],
-        "KAVAK": ["KAVAK", "NISSAN", "CHEVROLET", "HYUNDAI", "VOLKSWAGEN", "KIA", "MITSUBISHI", "FORD", "GEELY", "JEEP", "INFINITI", "PEUGEOT", "CHIREY", "RENAULT", "TOYOTA", "MG", "BBVA AUTOMARKET", "HONDA"],
-        "BAIC": ["BAIC", "MOTORNATION", "MG", "CHIREY", "BYD", "GEELY", "GAC MOTOR", "JETOUR", "CHANGAN MEXICO", "JAC"]
-    }
-    
-    dg_archivo = st.file_uploader("Subir Reporte Mensual", type=['xlsx', 'csv'], key="dg_fix_chevrolet_v5")
-
-    if dg_archivo:
-        try:
-            df_raw = pd.read_csv(dg_archivo) if dg_archivo.name.endswith('.csv') else pd.read_excel(dg_archivo)
-            df_raw.columns = [str(c).strip() for c in df_raw.columns]
-            
-            # Usamos "short name" como columna maestra
-            col_ref = "short name" if "short name" in df_raw.columns else "#Grupo"
-
-            if col_ref in df_raw.columns:
-                df_temp = df_raw.copy()
-                
-                # --- FUNCIÓN DE UNIFICACIÓN QUIRÚRGICA ---
-                def unificar_marcas_dashboard(valor):
-                    v = str(valor).upper().strip()
-                    
-                    # BYD: Solo si es Nissan o Nissan Mexico/Mexicana
-                    if v in ["BYD", "BYD AUTO", "BUILD YOUR DR B MEX"]:
-                        return "BYD"
-                        
-                    # NISSAN: Solo si es Nissan o Nissan Mexico/Mexicana
-                    if v in ["NISSAN", "NISSAN MEXICO", "NISSAN MEXICANA"]:
-                        return "NISSAN"
-                    
-                    # VOLKSWAGEN: Solo si es VW o variantes de país
-                    if v in ["VOLKSWAGEN", "VOLKSWAGEN MEXICO", "VOLKSWAGEN DE MEXICO", "VW"]:
-                        return "VOLKSWAGEN"
-                    
-                    # CHEVROLET / GM: Unificar para evitar el salto de 59 a 109
-                    if v in ["CHEVROLET", "GENERAL MOTORS", "GM", "GENERAL MOTORS MEX", "GMC"]:
-                        return "CHEVROLET"
-
-                    # GWM: Unificar 
-                    if v in ["GWM", "GREAT WALL MOTOR", "GREAT WALL MOTOR MEX", "GWM Great Wall Motors", "GWM MEXICO", "HAVAL"]:
-                        return "GWM MEXICO"
-                        
-                    # Chirey: Unificar las marcas
-                    if v in ["CHERY", "CHIREY", "Chirey Motor", "CHIREY MOTOR MEXICO", "JETOUR MEXICO", "JAECOO", "OMODA", "OMODA+JAECOO"]:
-                        return "CHIREY"
-                        
-                    # MG: Unificar las marcas
-                    if v in ["MG", "MG MOTOR", "MG MOTORS", "MG ROVER MEXICO", "MORRIS GARAGES", "MORRIS MOTORS"]:
-                        return "MG"
-
-                    # GAC: Unificar las marcas
-                    if v in ["GAC", "GAC MOTOR"]:
-                        return "GAC"
-
-                    # Changan: Unificar las marcas
-                    if v in ["CHANGAN", "CHANGAN AUTO", "CHANGAN MEXICO"]:
-                        return "CHANGAN MEXICO"
-
-                    return v
-
-                df_temp['Marca_Final'] = df_temp[col_ref].apply(unificar_marcas_dashboard)
-                df_temp['Monto'] = pd.to_numeric(df_temp['Inversión (MXN)'], errors='coerce').fillna(0)
-                
-                # Limpieza de Meses
-                df_temp['Mes_Raw'] = df_temp['Año-mes'].astype(str).str.replace("'", "").str.strip().str.lower()
-                mapa_meses = {'jan': 'Enero', 'feb': 'Febrero', 'mar': 'Marzo', 'apr': 'Abril', 'may': 'Mayo', 'jun': 'Junio'}
-                df_temp['Mes_Nombre'] = df_temp['Mes_Raw'].str[:3].map(mapa_meses).fillna("Otros")
-                
-                # Medios
-                def cat_medio(x):
-                    f = str(x).upper()
-                    if any(k in f for k in ['OOH', 'EXTERIOR', 'VALLA', 'MUPI', 'RELOJ', 'KIOSCO', 'COLUMNA', 'SITIO']): return 'OOH'
-                    if any(k in f for k in ['OFFLINE', 'TV', 'RADIO', 'PRENSA']): return 'OFFLINE'
-                    return 'ONLINE'
-                df_temp['Medio_Final'] = df_temp['Fuente'].apply(cat_medio)
-                
-                st.session_state.dg_memoria_historica = df_temp
-                st.success("Datos procesados. Chevrolet, Nissan y VW ajustados.")
-
-        except Exception as e:
-            st.error(f"Error: {e}")
-
-    # --- RENDERIZADO ---
-    if not st.session_state.dg_memoria_historica.empty:
-        df_full = st.session_state.dg_memoria_historica
-        mes_sel = st.selectbox("Selecciona el mes:", [m for m in df_full['Mes_Nombre'].unique() if m != "Otros"])
-        df_mes = df_full[df_full['Mes_Nombre'] == mes_sel]
-        
-        import altair as alt
-        tabs = st.tabs(list(GRUPOS_VISTAS.keys()))
-
-        for i, grupo in enumerate(GRUPOS_VISTAS.keys()):
-            with tabs[i]:
-                marcas_ok = GRUPOS_VISTAS[grupo]
-                # Filtramos SOLO las marcas del catálogo
-                df_g = df_mes[df_mes['Marca_Final'].isin(marcas_ok)]
-                
-                if not df_g.empty:
-                    st.markdown(f"## {grupo} - {mes_sel}")
-                    
-                    # Métricas con sumatorias limpias
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("TOTAL GRUPO", f"${df_g['Monto'].sum():,.0f}")
-                    c2.metric("ONLINE", f"${df_g[df_g['Medio_Final'] == 'ONLINE']['Monto'].sum():,.0f}")
-                    c3.metric("OFFLINE", f"${df_g[df_g['Medio_Final'] == 'OFFLINE']['Monto'].sum():,.0f}")
-                    c4.metric("OOH", f"${df_g[df_g['Medio_Final'] == 'OOH']['Monto'].sum():,.0f}")
-                    
-                    # Gráfica
-                    chart = alt.Chart(df_g).mark_bar(size=120).encode(
-                        x=alt.X('Mes_Nombre:N', title="Mes"),
-                        y=alt.Y('sum(Monto):Q', title="Inversión ($)"),
-                        color=alt.Color('Medio_Final:N', scale=alt.Scale(domain=['OOH', 'OFFLINE', 'ONLINE'], range=['#2471A3', '#D35400', '#28B463'])),
-                        tooltip=['Medio_Final', alt.Tooltip('sum(Monto)', format="$,.0f")]
-                    ).properties(height=450)
-                    st.altair_chart(chart, use_container_width=True)
-
-                    st.write("### Detalle Consolidado (Sin duplicados)")
-                    # Agrupamos para que Chevrolet solo aparezca UNA vez con su suma real
-                    df_t = df_g.groupby('Marca_Final')['Monto'].sum().reset_index().sort_values('Monto', ascending=False)
-                    st.dataframe(df_t.style.format({"Monto": "${:,.2f}"}), use_container_width=True)
-# ─────────────────────────────────────────────────────────────────────────────
-# DESCARGA DE RESULTADOS (FINAL DEL SCRIPT)
-# ─────────────────────────────────────────────────────────────────────────────
-if not final_df.empty:
+    # ── Marcas competencia (pills nativos) ──
     st.divider()
-    st.subheader("Resultado Listo")
-    
-    # 1. MÉTRICAS (Números grandes en el formato que pediste)
-    c1, c2, c3 = st.columns(3)
-    total_inv = final_df['Inversión (MXN)'].sum()
-    
-    c1.metric("Total Filas", f"{len(final_df):,}")
-    
-    # Formato de Millones para la métrica
-    if total_inv >= 1_000_000:
-        inv_format = f"${total_inv / 1_000_000:.1f}M"
+    st.subheader("Marcas competencia")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Todas", use_container_width=True):
+            st.session_state["brand_pills_widget"] = BRANDS_LIST
+            st.rerun()
+    with c2:
+        if st.button("Ninguna", use_container_width=True):
+            st.session_state["brand_pills_widget"] = []
+            st.rerun()
+
+    brand_selection = st.pills(
+        "Marcas",
+        BRANDS_LIST,
+        selection_mode="multi",
+        key="brand_pills_widget",
+        label_visibility="collapsed",
+    )
+    selected_brands = brand_selection or []
+    if not selected_brands:
+        st.warning("No hay marcas seleccionadas.")
+
+    # ── ZIP del mes ──
+    st.divider()
+    st.subheader("Descargar ZIP del mes")
+
+    avail_months = list_month_folders(base_path) if base_path else []
+
+    if avail_months:
+        year_map: dict[str, list[str]] = {}
+        for m in avail_months:
+            y = extract_year(m)
+            year_map.setdefault(y, []).append(m)
+
+        chosen_year  = st.selectbox("Año:", sorted(year_map.keys(), reverse=True))
+        chosen_month = st.text_input(
+            "Mes:",
+            value=sorted(year_map.get(chosen_year, [f"Enero {chosen_year}"]), reverse=True)[0],
+            placeholder="ej. Marzo 2026",
+        )
+
+        if st.button("Generar ZIP", use_container_width=True):
+            with st.spinner("Comprimiendo..."):
+                zip_bytes = build_zip(base_path, chosen_month)
+            if zip_bytes:
+                st.download_button(
+                    label=f"Descargar {chosen_month}.zip",
+                    data=zip_bytes,
+                    file_name=f"{chosen_month}.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                )
+            else:
+                st.error("Carpeta vacia o no encontrada.")
     else:
-        inv_format = f"${total_inv:,.0f}"
-        
-    c2.metric("Inversión Total", inv_format)
-    c3.metric("Meses Detectados", final_df['Año-mes'].dt.month.nunique())
+        st.info("Configura la carpeta raiz para ver los meses.")
 
-    # 2. GRÁFICA DE BARRAS (Con formato de moneda)
-    st.write("### Inversión por Marca/Grupo")
-    import altair as alt
-    
-    # Agrupamos datos para la gráfica
-    chart_data = final_df.groupby('#Grupo')['Inversión (MXN)'].sum().reset_index()
-    
-    # Creamos la gráfica con formato de moneda en el tooltip (el cuadrito que sale al pasar el mouse)
-    chart = alt.Chart(chart_data).mark_bar(color='#0077b6').encode(
-        x=alt.X('#Grupo:N', title="Marca", sort='-y'),
-        y=alt.Y('Inversión (MXN):Q', title="Inversión Acumulada ($)"),
-        tooltip=[
-            alt.Tooltip('#Grupo:N', title="Marca"),
-            alt.Tooltip('Inversión (MXN):Q', title="Total", format="$,.2f") # <--- Comas y $ aquí
-        ]
-    ).properties(height=400)
-    
-    st.altair_chart(chart, use_container_width=True)
+# ── Area principal ────────────────────────────────────────────────────────────
+st.subheader("Archivos a procesar")
 
-    # 3. BOTÓN DE DESCARGA
-    csv = final_df.to_csv(index=False).encode('utf-8-sig')
-    st.download_button(
-        label="Descargar layout_automotriz.csv",
-        data=csv,
-        file_name=f"upload_to_automotriz_{datetime.now().strftime('%Y%m%d')}.csv",
-        mime="text/csv",
-        use_container_width=True
+uploaded_files = st.file_uploader(
+    "Sube uno o mas archivos Excel (.xlsx) de Auditsa o Admetricks:",
+    type=["xlsx"],
+    accept_multiple_files=True,
+    label_visibility="visible",
+)
+
+if uploaded_files:
+    default_folder = f"{MONTHS_ES[datetime.now().month]} {datetime.now().year}"
+    month_folder = st.text_input(
+        "Nombre de la carpeta del mes:",
+        value=default_folder,
+        placeholder="ej. Marzo 2026",
+        help="Los testigos se guardaran en: Testigos Competencia / [nombre] / MARCA / testigo",
     )
-    
-    # 4. TABLA DETALLADA (Con formato de moneda en las celdas)
-    st.write("### Vista previa de los datos")
-    st.dataframe(
-        final_df.style.format({
-            "Inversión (MXN)": "${:,.2f}",
-            "Inversión F30": "${:,.2f}"
-        }),
-        use_container_width=True
-    )
+    st.caption(f"Ruta: .../{month_folder.strip() or '?'}/MARCA/testigo.jpg")
+
+    if st.button("Procesar archivos", type="primary", use_container_width=True):
+        if not selected_brands:
+            st.error("Selecciona al menos una marca en el panel izquierdo.")
+        elif not base_path or not Path(base_path).exists():
+            st.error(f"La carpeta raiz no existe: {base_path}")
+        elif not month_folder.strip():
+            st.error("Escribe el nombre de la carpeta del mes.")
+        else:
+            all_results = []
+            car_slot = st.empty()
+            car_slot.markdown(DRIVING_CAR_HTML, unsafe_allow_html=True)
+
+            for uf in uploaded_files:
+                st.markdown(f"---\n**{uf.name}**")
+                try:
+                    df = pd.read_excel(uf)
+                    source = detect_source(df)
+
+                    if source == "unknown":
+                        st.warning(f"Formato no reconocido en {uf.name} — se omite.")
+                        continue
+
+                    label = {
+                        "auditsa":    "Auditsa  (impreso / radio / tele)",
+                        "admetricks": "Admetricks  (online)",
+                        "ooh":        "OOH  (exterior · muestreo aleatorio)",
+                    }.get(source, source)
+                    st.info(f"Fuente: **{label}** — {len(df):,} registros")
+
+                    prog   = st.progress(0)
+                    status = st.empty()
+
+                    results = process_file(
+                        df, source, selected_brands, base_path,
+                        month_folder.strip(), prog, status,
+                    )
+                    all_results.extend(results)
+
+                    ok_n = sum(1 for r in results if r["Exito"])
+                    prog.progress(1.0)
+                    status.success(f"{ok_n} / {len(results)} testigos descargados")
+
+                except Exception as e:
+                    st.error(f"Error leyendo {uf.name}: {e}")
+
+            car_slot.markdown(PARKED_CAR_HTML, unsafe_allow_html=True)
+
+            if all_results:
+                st.divider()
+                st.header("Resultados")
+
+                df_res = pd.DataFrame(all_results)
+
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total procesados",    len(df_res))
+                col2.metric("Descargados OK",       int(df_res["Exito"].sum()))
+                col3.metric("Con oferta comercial", int(df_res["Oferta Comercial"].sum()))
+
+                tab1, tab2, tab3 = st.tabs(["Descargados", "Ofertas Comerciales", "Errores"])
+
+                with tab1:
+                    ok_df = df_res[df_res["Exito"]][
+                        ["Marca", "Medio", "Fuente", "Fecha", "Archivo"]
+                    ].reset_index(drop=True)
+                    st.dataframe(ok_df, use_container_width=True)
+
+                with tab2:
+                    offer_df = df_res[df_res["Oferta Comercial"]][
+                        ["Marca", "Medio", "Fuente", "Fecha", "Texto"]
+                    ].reset_index(drop=True)
+                    if len(offer_df):
+                        st.dataframe(offer_df, use_container_width=True)
+                    else:
+                        st.info("No se detectaron ofertas comerciales.")
+
+                with tab3:
+                    err_df = df_res[~df_res["Exito"]][
+                        ["Marca", "Medio", "Fuente", "Fecha", "Error"]
+                    ].reset_index(drop=True)
+                    if len(err_df):
+                        st.dataframe(err_df, use_container_width=True)
+                    else:
+                        st.success("Sin errores en este lote.")
+

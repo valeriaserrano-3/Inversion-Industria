@@ -435,6 +435,15 @@ def slug(s: str) -> str:
 def get_save_folder(base: str, marca: str, month_folder: str) -> Path:
     """Estructura: base / mes_año / marca / testigo"""
     folder = Path(base) / slug(month_folder) / slug(normalize_brand(marca))
+    # En macOS (case-insensitive) puede existir la carpeta en mayúsculas de corridas anteriores.
+    # Si hay una carpeta con el mismo nombre en distinto case, renombrarla.
+    if not folder.exists():
+        parent = folder.parent
+        if parent.exists():
+            for existing in parent.iterdir():
+                if existing.is_dir() and existing.name.lower() == folder.name and existing.name != folder.name:
+                    existing.rename(folder)
+                    break
     folder.mkdir(parents=True, exist_ok=True)
     return folder
 
